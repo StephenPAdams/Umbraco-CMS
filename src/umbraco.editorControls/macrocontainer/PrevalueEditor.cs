@@ -11,6 +11,7 @@ using System.Web.UI;
 
 namespace umbraco.editorControls.macrocontainer
 {
+    [Obsolete("IDataType and all other references to the legacy property editors are no longer used this will be removed from the codebase in future versions")]
     public class PrevalueEditor : System.Web.UI.WebControls.PlaceHolder, umbraco.interfaces.IDataPrevalue
     {
 
@@ -120,7 +121,7 @@ namespace umbraco.editorControls.macrocontainer
 
         #region Methods
         /// <summary>
-        /// Returns the selected Macro's in a comma seperated string
+        /// Returns the selected Macro's in a comma separated string
         /// </summary>
         private string GetSelectedMacosFromCheckList()
         {

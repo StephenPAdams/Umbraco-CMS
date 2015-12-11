@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Web.Mvc;
-using Microsoft.Web.Mvc;
 using Umbraco.Core;
 using Umbraco.Core.IO;
 using Umbraco.Web.Models;
@@ -13,7 +12,7 @@ namespace Umbraco.Web.Mvc
 	/// A view engine to look into the template location specified in the config for the front-end/Rendering part of the cms,
 	/// this includes paths to render partial macros and media item templates.
 	/// </summary>
-	public class RenderViewEngine : FixedRazorViewEngine
+    public class RenderViewEngine : ReflectedFixedRazorViewEngine
 	{
 
 		private readonly IEnumerable<string> _supplementedViewLocations = new[] { "/{0}.cshtml" };
@@ -33,7 +32,7 @@ namespace Umbraco.Web.Mvc
 			var replacePartialWithUmbracoFolder = _supplementedPartialViewLocations.ForEach(location => templateFolder + location);
 
 			//The Render view engine doesn't support Area's so make those blank
-			ViewLocationFormats = replaceWithUmbracoFolder.ToArray();
+            ViewLocationFormats = replaceWithUmbracoFolder.ToArray();
 			PartialViewLocationFormats = replacePartialWithUmbracoFolder.ToArray();
 
 			AreaPartialViewLocationFormats = new string[] { };
@@ -54,7 +53,7 @@ namespace Umbraco.Web.Mvc
 			{
 				using (var writer = File.CreateText(Path.Combine(viewFolder, "web.config")))
 				{
-					writer.Write(Strings.web_config);
+					writer.Write(Strings.WebConfigTemplate);
 				}
 			}
 			//auto create the partials folder
@@ -92,27 +91,25 @@ namespace Umbraco.Web.Mvc
 		/// <param name="controllerContext"></param>
 		/// <param name="isPartial"></param>
 		/// <returns></returns>
-		private bool ShouldFindView(ControllerContext controllerContext, bool isPartial)
-		{
-			//first check if we're rendering a partial view for the back office, or surface controller, etc...
-			//anything that is not IUmbracoRenderModel as this should only pertain to Umbraco views.
-			if (isPartial
-			    && controllerContext.RouteData.DataTokens.ContainsKey("umbraco")
-			    && !(controllerContext.RouteData.DataTokens["umbraco"] is RenderModel))
-			{
-				return true;
-			}
+        private bool ShouldFindView(ControllerContext controllerContext, bool isPartial)
+        {
+            var umbracoToken = controllerContext.GetDataTokenInViewContextHierarchy("umbraco");
 
-			//only find views if we're rendering the umbraco front end
-			if (controllerContext.RouteData.DataTokens.ContainsKey("umbraco")
-			    && controllerContext.RouteData.DataTokens["umbraco"] != null
-			    && controllerContext.RouteData.DataTokens["umbraco"] is RenderModel)
-			{
-				return true;
-			}
+            //first check if we're rendering a partial view for the back office, or surface controller, etc...
+            //anything that is not IUmbracoRenderModel as this should only pertain to Umbraco views.
+            if (isPartial && ((umbracoToken is RenderModel) == false))
+            {
+                return true;
+            }
 
-			return false;
-		}
+            //only find views if we're rendering the umbraco front end
+            if (umbracoToken is RenderModel)
+            {
+                return true;
+            }
+
+            return false;
+        }
 
 	}
 }

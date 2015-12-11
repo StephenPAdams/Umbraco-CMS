@@ -1,77 +1,62 @@
 using System;
 using System.Data;
+using System.Linq;
+using System.Web;
 using System.Web.Security;
+using System.Windows.Forms;
+using Umbraco.Core;
+using Umbraco.Core.Models;
+using Umbraco.Web.UI;
 using umbraco.BusinessLogic;
 using umbraco.DataLayer;
 using umbraco.BasePages;
-using umbraco.IO;
+using Umbraco.Core.IO;
 using umbraco.cms.businesslogic.member;
 
 namespace umbraco
 {
-    public class stylesheetPropertyTasks : interfaces.ITaskReturnUrl
+    public class stylesheetPropertyTasks : LegacyDialogTask
     {
 
-        private string _alias;
-        private int _parentID;
-        private int _typeID;
-        private int _userID;
-
-        public int UserId
+        public override bool PerformSave()
         {
-            set { _userID = value; }
-        }
-        public int TypeID
-        {
-            set { _typeID = value; }
-            get { return _typeID; }
-        }
+            var stylesheetName = AdditionalValues["nodeId"].ToString();
 
+            var s = Umbraco.Core.ApplicationContext.Current.Services.FileService.GetStylesheetByName(stylesheetName.EnsureEndsWith(".css"));
+            s.AddProperty(new StylesheetProperty(Alias, "." + Alias.ToSafeAlias(), ""));
+            Umbraco.Core.ApplicationContext.Current.Services.FileService.SaveStylesheet(s);
 
-        public string Alias
-        {
-            set { _alias = value; }
-            get { return _alias; }
-        }
-
-        public int ParentID
-        {
-            set { _parentID = value; }
-            get { return _parentID; }
-        }
-
-        public bool Save()
-        {
-            try
-            {
-                cms.businesslogic.web.StyleSheet s = new cms.businesslogic.web.StyleSheet(ParentID);
-                int id = s.AddProperty(Alias, BusinessLogic.User.GetUser(_userID)).Id;
-                m_returnUrl = string.Format("settings/stylesheet/property/EditStyleSheetProperty.aspx?id={0}", id);
-            }
-            catch
-            {
-                throw new ArgumentException("DER ER SKET EN FEJL MED AT OPRETTE NOGET MED ET PARENT ID : " + ParentID);
-            }
+            _returnUrl = string.Format("settings/stylesheet/property/EditStyleSheetProperty.aspx?id={0}&prop={1}", HttpUtility.UrlEncode(s.Path), Alias);
             return true;
         }
 
-        public bool Delete()
+        public override bool PerformDelete()
         {
-            cms.businesslogic.web.StylesheetProperty sp = new cms.businesslogic.web.StylesheetProperty(ParentID);
-            cms.businesslogic.web.StyleSheet s = sp.StyleSheet();
-            s.saveCssToFile();
-            sp.delete();
+            var parts = Alias.Split('_');
+
+            var stylesheet = Umbraco.Core.ApplicationContext.Current.Services.FileService.GetStylesheetByName(parts[0].EnsureEndsWith(".css"));
+            if (stylesheet == null) throw new InvalidOperationException("No stylesheet found by name: " + parts[0]);
+
+            var prop = stylesheet.Properties.FirstOrDefault(x => x.Name == parts[1]);
+            if (prop == null) throw new InvalidOperationException("No stylesheet property found by name: " + parts[1]);
+
+            stylesheet.RemoveProperty(prop.Name);
+
+            Umbraco.Core.ApplicationContext.Current.Services.FileService.SaveStylesheet(stylesheet);
 
             return true;
         }
 
-        #region ITaskReturnUrl Members
-        private string m_returnUrl = "";
-        public string ReturnUrl
+        private string _returnUrl = "";
+            
+        public override string ReturnUrl
         {
-            get { return m_returnUrl; }
+            get { return _returnUrl; }
         }
 
-        #endregion
+        public override string AssignedApp
+        {
+            get { return DefaultApps.settings.ToString(); }
+        }
     }
 }

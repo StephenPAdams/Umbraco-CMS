@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
@@ -14,10 +15,13 @@ namespace Umbraco.Core.Models
     /// <summary>
     /// Represents an abstract class for base Content properties and methods
     /// </summary>
+    [Serializable]
+    [DataContract(IsReference = true)]
     [DebuggerDisplay("Id: {Id}, Name: {Name}, ContentType: {ContentTypeBase.Alias}")]
     public abstract class ContentBase : Entity, IContentBase
     {
         protected IContentTypeComposition ContentTypeBase;
+        
         private Lazy<int> _parentId;
         private string _name;//NOTE Once localization is introduced this will be the localized Name of the Content/Media.
         private int _sortOrder;
@@ -47,9 +51,10 @@ namespace Umbraco.Core.Models
 
             _parentId = new Lazy<int>(() => parentId);
             _name = name;
-            _contentTypeId = int.Parse(contentType.Id.ToString(CultureInfo.InvariantCulture));
+            _contentTypeId = contentType.Id;
             _properties = properties;
             _properties.EnsurePropertyTypes(PropertyTypes);
+            _additionalData = new Dictionary<string, object>();
         }
 
         /// <summary>
@@ -70,9 +75,10 @@ namespace Umbraco.Core.Models
 
 			_parentId = new Lazy<int>(() => parent.Id);
             _name = name;
-			_contentTypeId = int.Parse(contentType.Id.ToString(CultureInfo.InvariantCulture));
+			_contentTypeId = contentType.Id;
 			_properties = properties;
 			_properties.EnsurePropertyTypes(PropertyTypes);
+            _additionalData = new Dictionary<string, object>();
 		}
 
 	    private static readonly PropertyInfo NameSelector = ExpressionHelper.GetPropertyInfo<ContentBase, string>(x => x.Name);
@@ -228,7 +234,16 @@ namespace Umbraco.Core.Models
         [DataMember]
         public virtual int ContentTypeId
         {
-            get { return _contentTypeId; }
+            get
+            {
+                //There will be cases where this has not been updated to reflect the true content type ID.
+                //This will occur when inserting new content.
+                if (_contentTypeId == 0 && ContentTypeBase != null && ContentTypeBase.HasIdentity)
+                {
+                    _contentTypeId = ContentTypeBase.Id;
+                }
+                return _contentTypeId;
+            }
             protected set
             {
                 SetPropertyValueAndDetectChanges(o =>
@@ -251,6 +266,17 @@ namespace Umbraco.Core.Models
                 _properties = value;
                 _properties.CollectionChanged += PropertiesChanged;
             }
+        }
+
+        private readonly IDictionary<string, object> _additionalData;
+
+        /// <summary>
+        /// Some entities may expose additional data that other's might not, this custom data will be available in this collection
+        /// </summary>
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        IDictionary<string, object> IUmbracoEntity.AdditionalData
+        {
+            get { return _additionalData; }
         }
 
         /// <summary>
@@ -293,10 +319,8 @@ namespace Umbraco.Core.Models
         /// <returns><see cref="Property"/> Value as a <see cref="TPassType"/></returns>
         public virtual TPassType GetValue<TPassType>(string propertyTypeAlias)
         {
-            if (Properties[propertyTypeAlias].Value is TPassType)
-                return (TPassType)Properties[propertyTypeAlias].Value;
-
-            return (TPassType)Convert.ChangeType(Properties[propertyTypeAlias].Value, typeof(TPassType));
+            var convertAttempt = Properties[propertyTypeAlias].Value.TryConvertTo<TPassType>();
+            return convertAttempt.Success ? convertAttempt.Result : default(TPassType);
         }
 
         /// <summary>
@@ -372,7 +396,7 @@ namespace Umbraco.Core.Models
         /// Sets the <see cref="System.Web.HttpPostedFile"/> value of a Property
         /// </summary>
         /// <param name="propertyTypeAlias">Alias of the PropertyType</param>
-        /// <param name="value">Value to set for the Property</param>
+        /// <param name="value">Value to set for the Property</param>        
         public virtual void SetPropertyValue(string propertyTypeAlias, HttpPostedFile value)
         {
             ContentExtensions.SetValue(this, propertyTypeAlias, value);
@@ -393,6 +417,7 @@ namespace Umbraco.Core.Models
         /// </summary>
         /// <param name="propertyTypeAlias">Alias of the PropertyType</param>
         /// <param name="value">Value to set for the Property</param>
+        [Obsolete("There is no reason for this overload since HttpPostedFileWrapper inherits from HttpPostedFileBase")]
         public virtual void SetPropertyValue(string propertyTypeAlias, HttpPostedFileWrapper value)
         {
             ContentExtensions.SetValue(this, propertyTypeAlias, value);
@@ -411,7 +436,7 @@ namespace Umbraco.Core.Models
                 return;
             }
 
-            var propertyType = PropertyTypes.FirstOrDefault(x => x.Alias == propertyTypeAlias);
+            var propertyType = PropertyTypes.FirstOrDefault(x => x.Alias.InvariantEquals(propertyTypeAlias));
             if (propertyType == null)
             {
                 throw new Exception(String.Format("No PropertyType exists with the supplied alias: {0}", propertyTypeAlias));
@@ -433,6 +458,7 @@ namespace Umbraco.Core.Models
         /// <summary>
         /// Returns a collection of the result of the last validation process, this collection contains all invalid properties.
         /// </summary>
+        [IgnoreDataMember]
         internal IEnumerable<Property> LastInvalidProperties
         {
             get { return _lastInvalidProperties; }
@@ -440,12 +466,14 @@ namespace Umbraco.Core.Models
 
         public abstract void ChangeTrashedState(bool isTrashed, int parentId = -20);
 
+        #region Dirty property handling
+
         /// <summary>
         /// We will override this method to ensure that when we reset the dirty properties that we 
         /// also reset the dirty changes made to the content's Properties (user defined)
         /// </summary>
         /// <param name="rememberPreviouslyChangedProperties"></param>
-        internal override void ResetDirtyProperties(bool rememberPreviouslyChangedProperties)
+        public override void ResetDirtyProperties(bool rememberPreviouslyChangedProperties)
         {
             base.ResetDirtyProperties(rememberPreviouslyChangedProperties);
 
@@ -454,5 +482,89 @@ namespace Umbraco.Core.Models
                 prop.ResetDirtyProperties(rememberPreviouslyChangedProperties);
             }
         }
+
+        /// <summary>
+        /// Indicates whether the current entity is dirty.
+        /// </summary>
+        /// <returns>True if entity is dirty, otherwise False</returns>
+        public override bool IsDirty()
+        {
+            return IsEntityDirty() || this.IsAnyUserPropertyDirty();
+        }
+
+        /// <summary>
+        /// Indicates whether the current entity was dirty.
+        /// </summary>
+        /// <returns>True if entity was dirty, otherwise False</returns>
+        public override bool WasDirty()
+        {
+            return WasEntityDirty() || this.WasAnyUserPropertyDirty();
+        }
+
+        /// <summary>
+        /// Returns true if only the entity properties are dirty
+        /// </summary>
+        /// <returns></returns>
+        public bool IsEntityDirty()
+        {
+            return base.IsDirty();
+        }
+
+        /// <summary>
+        /// Returns true if only the entity properties were dirty
+        /// </summary>
+        /// <returns></returns>
+        public bool WasEntityDirty()
+        {
+            return base.WasDirty();
+        }
+
+        /// <summary>
+        /// Indicates whether a specific property on the current <see cref="IContent"/> entity is dirty.
+        /// </summary>
+        /// <param name="propertyName">Name of the property to check</param>
+        /// <returns>
+        /// True if any of the class properties are dirty or 
+        /// True if any of the user defined PropertyType properties are dirty based on their alias, 
+        /// otherwise False
+        /// </returns>
+        public override bool IsPropertyDirty(string propertyName)
+        {
+            bool existsInEntity = base.IsPropertyDirty(propertyName);
+            if (existsInEntity)
+                return true;
+
+            if (Properties.Contains(propertyName))
+            {
+                return Properties[propertyName].IsDirty();
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Indicates whether a specific property on the current entity was changed and the changes were committed
+        /// </summary>
+        /// <param name="propertyName">Name of the property to check</param>
+        /// <returns>
+        /// True if any of the class properties are dirty or 
+        /// True if any of the user defined PropertyType properties are dirty based on their alias, 
+        /// otherwise False
+        /// </returns>
+        public override bool WasPropertyDirty(string propertyName)
+        {
+            bool existsInEntity = base.WasPropertyDirty(propertyName);
+            if (existsInEntity)
+                return true;
+
+            if (Properties.Contains(propertyName))
+            {
+                return Properties[propertyName].WasDirty();
+            }
+
+            return false;
+        }
+
+        #endregion
     }
 }

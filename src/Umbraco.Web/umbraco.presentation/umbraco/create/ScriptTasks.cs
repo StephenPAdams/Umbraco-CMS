@@ -1,100 +1,76 @@
-using System;
-using System.Data;
-using System.Web.Security;
+using Umbraco.Core.IO;
+using Umbraco.Web.UI;
+using Umbraco.Core;
 using Umbraco.Core.Logging;
+using Umbraco.Core.Models;
 using umbraco.BusinessLogic;
-using umbraco.DataLayer;
 using umbraco.BasePages;
-using umbraco.IO;
-using umbraco.cms.businesslogic.member;
 
 namespace umbraco
 {
-	public class ScriptTasks : interfaces.ITaskReturnUrl
+    public class ScriptTasks : LegacyDialogTask
     {
-        private string _alias;
-        private int _parentID;
-        private int _typeID;
-        private int _userID;
-
-        public int UserId
+     
+        public override bool PerformSave()
         {
-            set { _userID = value; }
-        }
-        public int TypeID
-        {
-            set { _typeID = value; }
-            get { return _typeID; }
-        }
+            var scriptFileAr = Alias.Split('\u00A4');
 
+            var fileName = scriptFileAr[0];
+            var fileType = scriptFileAr[1];
+            
+            var createFolder = ParentID;
 
-        public string Alias
-        {
-            set { _alias = value; }
-            get { return _alias; }
-        }
-
-        public int ParentID
-        {
-            set { _parentID = value; }
-            get { return _parentID; }
-        }
-
-        public bool Save()
-        {
-            string[] scriptFileAr = _alias.Split('\u00A4');
-
-
-
-            string relPath = scriptFileAr[0];
-            string fileName = scriptFileAr[1];
-            string fileType = scriptFileAr[2];
-
-            int createFolder = ParentID;
-
-            string basePath = IOHelper.MapPath(SystemDirectories.Scripts + "/" + relPath + fileName);
-            if (System.IO.File.Exists(basePath))
+            if (createFolder == 1)
             {
-                m_returnUrl = string.Format("settings/scripts/editScript.aspx?file={0}{1}.{2}", relPath, fileName, fileType);
+                ApplicationContext.Current.Services.FileService.CreateScriptFolder(fileName);
                 return true;
+            }
+
+            // remove file extension
+            if (fileName.ToLowerInvariant().EndsWith(fileType.ToLowerInvariant()))
+            {
+                fileName = fileName.Substring(0,
+                                              fileName.ToLowerInvariant().LastIndexOf(fileType.ToLowerInvariant(), System.StringComparison.Ordinal) - 1);
+            }
+
+            var scriptPath = fileName + "." + fileType;
+            var found = ApplicationContext.Current.Services.FileService.GetScriptByName(scriptPath);
+            if (found != null)
+            {
+                _returnUrl = string.Format("settings/scripts/editScript.aspx?file={0}", scriptPath.TrimStart('/'));
+                return true;
+            }
+            var script = new Script(fileName + "." + fileType);
+            ApplicationContext.Current.Services.FileService.SaveScript(script);
+            _returnUrl = string.Format("settings/scripts/editScript.aspx?file={0}", scriptPath.TrimStart('/'));
+            return true;
+        }
+
+        public override bool PerformDelete()
+        {
+            if (Alias.Contains(".") == false)
+            {
+                //there is no extension so we'll assume it's a folder
+                ApplicationContext.Current.Services.FileService.DeleteScriptFolder(Alias.TrimStart('/'));
             }
             else
             {
-                if (createFolder == 1)
-                {
-                    System.IO.Directory.CreateDirectory(basePath);
-                }
-                else
-                {
-                    System.IO.File.Create(basePath + "." + fileType).Close();
-                    m_returnUrl = string.Format("settings/scripts/editScript.aspx?file={0}{1}.{2}", relPath, fileName,
-                                                fileType);
-                }
+                ApplicationContext.Current.Services.FileService.DeleteScript(Alias.TrimStart('/'), User.Id);    
             }
-            return true;
-        }
-
-        public bool Delete()
-        {
-            string path = IOHelper.MapPath(SystemDirectories.Scripts + "/" + _alias.TrimStart('/'));
-
-            if (System.IO.File.Exists(path))
-                System.IO.File.Delete(path);
-            else if (System.IO.Directory.Exists(path))
-                System.IO.Directory.Delete(path, true);
-
-            LogHelper.Info<ScriptTasks>(string.Format("{0} Deleted by user {1}", _alias, UmbracoEnsuredPage.CurrentUser.Id));
 
             return true;
         }
 
-        #region ITaskReturnUrl Members
-        private string m_returnUrl = "";
-        public string ReturnUrl
+        private string _returnUrl = "";
+
+        public override string ReturnUrl
         {
-            get { return m_returnUrl; }
+            get { return _returnUrl; }
         }
 
-        #endregion
+        public override string AssignedApp
+        {
+            get { return DefaultApps.settings.ToString(); }
+        }
     }
 }

@@ -12,7 +12,7 @@ using Umbraco.Core.IO;
 
 namespace Umbraco.Core
 {
-	/// <summary>
+    /// <summary>
 	/// The XmlHelper class contains general helper methods for working with xml in umbraco.
     /// </summary>
     public class XmlHelper
@@ -50,7 +50,7 @@ namespace Umbraco.Core
         {
             try
             {
-                doc = new XPathDocument(new XmlTextReader(new StringReader(xml)));
+                doc = CreateXPathDocument(xml);
                 return true;
             }
             catch (Exception)
@@ -63,82 +63,183 @@ namespace Umbraco.Core
         /// <summary>
         /// Tries to create a new <c>XPathDocument</c> from a property value.
         /// </summary>
-        /// <param name="alias">The alias of the property.</param>
         /// <param name="value">The value of the property.</param>
         /// <param name="doc">The XPath document.</param>
         /// <returns>A value indicating whether it has been possible to create the document.</returns>
-        public static bool TryCreateXPathDocumentFromPropertyValue(string alias, object value, out XPathDocument doc)
+        /// <remarks>The value can be anything... Performance-wise, this is bad.</remarks>
+        public static bool TryCreateXPathDocumentFromPropertyValue(object value, out XPathDocument doc)
         {
-            // In addition, DynamicNode strips dashes in elements or attributes
-            // names but really, this is ugly enough, and using dashes should be
-            // illegal in content type or property aliases anyway.
+            // DynamicNode.ConvertPropertyValueByDataType first cleans the value by calling
+            // XmlHelper.StripDashesInElementOrAttributeName - this is because the XML is
+            // to be returned as a DynamicXml and element names such as "value-item" are
+            // invalid and must be converted to "valueitem". But we don't have that sort of
+            // problem here - and we don't need to bother with dashes nor dots, etc.
 
             doc = null;
             var xml = value as string;
-            if (xml == null) return false;
-            xml = xml.Trim();
-            if (xml.StartsWith("<") == false || xml.EndsWith(">") == false || xml.Contains('/') == false) return false;
-            if (UmbracoSettings.NotDynamicXmlDocumentElements.Any(x => x.InvariantEquals(alias))) return false;
-            return TryCreateXPathDocument(xml, out doc);
+            if (xml == null) return false; // no a string
+            if (CouldItBeXml(xml) == false) return false; // string does not look like it's xml
+            if (IsXmlWhitespace(xml)) return false; // string is whitespace, xml-wise
+            if (TryCreateXPathDocument(xml, out doc) == false) return false; // string can't be parsed into xml
+
+            var nav = doc.CreateNavigator();
+            if (nav.MoveToFirstChild())
+            {
+                var name = nav.LocalName; // must not match an excluded tag
+                if (UmbracoConfig.For.UmbracoSettings().Scripting.NotDynamicXmlDocumentElements.All(x => x.Element.InvariantEquals(name) == false)) return true;
+            }
+
+            doc = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Tries to create a new <c>XElement</c> from a property value.
+        /// </summary>
+        /// <param name="value">The value of the property.</param>
+        /// <param name="elt">The Xml element.</param>
+        /// <returns>A value indicating whether it has been possible to create the element.</returns>
+        /// <remarks>The value can be anything... Performance-wise, this is bad.</remarks>
+        public static bool TryCreateXElementFromPropertyValue(object value, out XElement elt)
+        {
+            // see note above in TryCreateXPathDocumentFromPropertyValue...
+
+            elt = null;
+            var xml = value as string;
+            if (xml == null) return false; // not a string
+            if (CouldItBeXml(xml) == false) return false; // string does not look like it's xml
+            if (IsXmlWhitespace(xml)) return false; // string is whitespace, xml-wise
+
+            try
+            {
+                elt = XElement.Parse(xml, LoadOptions.None);
+            }
+            catch
+            {
+                elt = null;
+                return false; // string can't be parsed into xml
+            }
+
+            var name = elt.Name.LocalName; // must not match an excluded tag
+            if (UmbracoConfig.For.UmbracoSettings().Scripting.NotDynamicXmlDocumentElements.All(x => x.Element.InvariantEquals(name) == false)) return true;
+
+            elt = null;
+            return false;
         }
         
         /// <summary>
-	    /// Sorts the children of the parentNode that match the xpath selector 
-	    /// </summary>
-	    /// <param name="parentNode"></param>
-	    /// <param name="childXPathSelector">An xpath expression used to select child nodes of the XmlElement</param>
-	    /// <param name="childSelector">An expression that returns true if the XElement passed in is a valid child node to be sorted</param>
-	    /// <param name="orderByValue">The value to order the results by</param>
-	    internal static void SortNodes(
+        /// Sorts the children of a parentNode.
+        /// </summary>
+        /// <param name="parentNode">The parent node.</param>
+        /// <param name="childNodesXPath">An XPath expression to select children of <paramref name="parentNode"/> to sort.</param>
+        /// <param name="orderBy">A function returning the value to order the nodes by.</param>
+        internal static void SortNodes(
             XmlNode parentNode, 
-            string childXPathSelector, 
-            Func<XElement, bool> childSelector,
-            Func<XElement, object> orderByValue)
-	    {
+            string childNodesXPath,
+            Func<XmlNode, int> orderBy)
+        {
+            var sortedChildNodes = parentNode.SelectNodes(childNodesXPath).Cast<XmlNode>()
+                .OrderBy(orderBy)
+                .ToArray();
 
-            var xElement = parentNode.ToXElement();
-            var children = xElement.Elements().Where(x => childSelector(x)).ToArray(); //(DONT conver to method group, the build server doesn't like it)
-            
-            var data = children
-                .OrderByDescending(orderByValue)     //order by the sort order desc
-                .Select(x => children.IndexOf(x))   //store the current item's index (DONT conver to method group, the build server doesn't like it)
-                .ToList();
-
-            //get the minimum index that a content node exists  in the parent
-            var minElementIndex = xElement.Elements()
-                .TakeWhile(x => childSelector(x) == false)
-                .Count();
-
-	        //if the minimum index is zero, then it is the very first node inside the parent,
-            // if it is not, we need to store the child property node that exists just before the 
-            // first content node found so we can insert elements after it when we're sorting.
-            var insertAfter = minElementIndex == 0 ? null : parentNode.ChildNodes[minElementIndex - 1];
-
-            var selectedChildren = parentNode.SelectNodes(childXPathSelector);
-            if (selectedChildren == null)
-            {
-                throw new InvalidOperationException(string.Format("The childXPathSelector value did not return any results {0}", childXPathSelector));
-            }
-
-            var childElements = selectedChildren.Cast<XmlElement>().ToArray();
-
-            //iterate over the ndoes starting with the node with the highest sort order.
-            //then we insert this node at the begginning of the parent so that by the end
-            //of the iteration the node with the least sort order will be at the top.
-            foreach (var node in data.Select(index => childElements[index]))
-            {
-                if (insertAfter == null)
-                {
-                    parentNode.PrependChild(node);
-                }
-                else
-                {
-                    parentNode.InsertAfter(node, insertAfter);
-                }
-            }
+            // append child nodes to last position, in sort-order
+            // so all child nodes will go after the property nodes
+            foreach (var node in sortedChildNodes)
+                parentNode.AppendChild(node); // moves the node to the last position
         }
-        
 
+        /// <summary>
+        /// Sorts the children of a parentNode if needed.
+        /// </summary>
+        /// <param name="parentNode">The parent node.</param>
+        /// <param name="childNodesXPath">An XPath expression to select children of <paramref name="parentNode"/> to sort.</param>
+        /// <param name="orderBy">A function returning the value to order the nodes by.</param>
+        /// <returns>A value indicating whether sorting was needed.</returns>
+        /// <remarks>same as SortNodes but will do nothing if nodes are already sorted - should improve performances.</remarks>
+        internal static bool SortNodesIfNeeded(
+            XmlNode parentNode,
+            string childNodesXPath,
+            Func<XmlNode, int> orderBy)
+        {
+            // ensure orderBy runs only once per node
+            // checks whether nodes are already ordered
+            // and actually sorts only if needed
+
+            var childNodesAndOrder = parentNode.SelectNodes(childNodesXPath).Cast<XmlNode>()
+                .Select(x => Tuple.Create(x, orderBy(x))).ToArray();
+
+            var a = 0;
+            foreach (var x in childNodesAndOrder)
+            {
+                if (a > x.Item2)
+                {
+                    a = -1;
+                    break;
+                }
+                a = x.Item2;
+            }
+
+            if (a >= 0)
+	            return false;
+
+            // append child nodes to last position, in sort-order
+            // so all child nodes will go after the property nodes
+            foreach (var x in childNodesAndOrder.OrderBy(x => x.Item2))
+                parentNode.AppendChild(x.Item1); // moves the node to the last position
+
+            return true;
+        }
+
+        /// <summary>
+        /// Sorts a single child node of a parentNode.
+        /// </summary>
+        /// <param name="parentNode">The parent node.</param>
+        /// <param name="childNodesXPath">An XPath expression to select children of <paramref name="parentNode"/> to sort.</param>
+        /// <param name="node">The child node to sort.</param>
+        /// <param name="orderBy">A function returning the value to order the nodes by.</param>
+        /// <returns>A value indicating whether sorting was needed.</returns>
+        /// <remarks>Assuming all nodes but <paramref name="node"/> are sorted, this will move the node to 
+        /// the right position without moving all the nodes (as SortNodes would do) - should improve perfs.</remarks>
+        internal static bool SortNode(
+            XmlNode parentNode,
+            string childNodesXPath,
+            XmlNode node,
+            Func<XmlNode, int> orderBy)
+	    {
+            var nodeSortOrder = orderBy(node);
+            var childNodesAndOrder = parentNode.SelectNodes(childNodesXPath).Cast<XmlNode>()
+                .Select(x => Tuple.Create(x, orderBy(x))).ToArray();
+
+            // find the first node with a sortOrder > node.sortOrder
+            var i = 0;
+            while (i < childNodesAndOrder.Length && childNodesAndOrder[i].Item2 <= nodeSortOrder)
+               i++;
+
+            // if one was found
+            if (i < childNodesAndOrder.Length)
+            {
+                // and node is just before, we're done already
+                // else we need to move it right before the node that was found
+                if (i > 0 && childNodesAndOrder[i - 1].Item1 != node)
+                {
+                    parentNode.InsertBefore(node, childNodesAndOrder[i].Item1);
+                    return true;
+                }
+            }
+            else
+            {
+                // and node is the last one, we're done already
+                // else we need to append it as the last one
+                if (i > 0 && childNodesAndOrder[i - 1].Item1 != node)
+                {
+                    parentNode.AppendChild(node);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // used by DynamicNode only, see note in TryCreateXPathDocumentFromPropertyValue
         public static string StripDashesInElementOrAttributeNames(string xml)
         {
             using (var outputms = new MemoryStream())
@@ -289,17 +390,10 @@ namespace Umbraco.Core
         /// </returns>
 		public static bool CouldItBeXml(string xml)
         {
-            if (string.IsNullOrEmpty(xml) == false)
-            {
-                xml = xml.Trim();
+            if (string.IsNullOrEmpty(xml)) return false;
 
-                if (xml.StartsWith("<") && xml.EndsWith(">") && xml.Contains("/"))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            xml = xml.Trim();
+            return xml.StartsWith("<") && xml.EndsWith(">") && xml.Contains('/');
         }
 
         /// <summary>

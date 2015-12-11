@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-
 using Umbraco.Core.Models;
+using Umbraco.Core.Models.PublishedContent;
+using Umbraco.Web.Models;
 
 namespace Umbraco.Web.PublishedCache
 {
@@ -33,5 +33,15 @@ namespace Umbraco.Web.PublishedCache
         /// <returns>The route.</returns>
         /// <remarks>The value of <paramref name="preview"/> overrides the context.</remarks>
         string GetRouteById(UmbracoContext umbracoContext, bool preview, int contentId);
+
+        /// <summary>
+        /// Creates a detached property.
+        /// </summary>
+        /// <param name="propertyType">The published property type.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="isPreviewing">A value indicating whether the property is created within a previewing context.</param>
+        /// <returns>A detached property.</returns>
+        /// <remarks>Implementations must check that propertyType.IsDetachedOrNested is true.</remarks>
+        IPublishedProperty CreateDetachedProperty(PublishedPropertyType propertyType, object value, bool isPreviewing);
     }
 }

@@ -5,7 +5,7 @@ using Umbraco.Core.Models.Rdbms;
 
 namespace Umbraco.Core.Persistence.Factories
 {
-    internal class DataTypeDefinitionFactory : IEntityFactory<IDataTypeDefinition, DataTypeDto>
+    internal class DataTypeDefinitionFactory
     {
         private readonly Guid _nodeObjectTypeId;
         private int _primaryKey;
@@ -19,15 +19,12 @@ namespace Umbraco.Core.Persistence.Factories
 
         public IDataTypeDefinition BuildEntity(DataTypeDto dto)
         {
-            var dataTypeDefinition = new DataTypeDefinition(dto.NodeDto.ParentId, dto.ControlId)
+            var dataTypeDefinition = new DataTypeDefinition(dto.PropertyEditorAlias)
                                          {
                                              CreateDate = dto.NodeDto.CreateDate,
                                              DatabaseType = dto.DbType.EnumParse<DataTypeDatabaseType>(true),
                                              Id = dto.DataTypeId,
-                                             Key =
-                                                 dto.NodeDto.UniqueId.HasValue
-                                                     ? dto.NodeDto.UniqueId.Value
-                                                     : dto.DataTypeId.ToGuid(),
+                                             Key = dto.NodeDto.UniqueId,
                                              Level = dto.NodeDto.Level,
                                              UpdateDate = dto.NodeDto.CreateDate,
                                              Name = dto.NodeDto.Text,
@@ -47,7 +44,7 @@ namespace Umbraco.Core.Persistence.Factories
         {
             var dataTypeDto = new DataTypeDto
                                   {
-                                      ControlId = entity.ControlId,
+                                      PropertyEditorAlias = entity.PropertyEditorAlias,
                                       DataTypeId = entity.Id,
                                       DbType = entity.DatabaseType.ToString(),
                                       NodeDto = BuildNodeDto(entity)

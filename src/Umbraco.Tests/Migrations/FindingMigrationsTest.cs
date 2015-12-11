@@ -1,14 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Moq;
 using NUnit.Framework;
 using Umbraco.Core;
+using Umbraco.Core.Logging;
 using Umbraco.Core.ObjectResolution;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.Migrations;
 using Umbraco.Core.Persistence.SqlSyntax;
+using Umbraco.Core.Profiling;
+using Umbraco.Core.Services;
 using Umbraco.Tests.Migrations.Stubs;
-using Umbraco.Tests.TestHelpers;
 
 namespace Umbraco.Tests.Migrations
 {
@@ -18,24 +21,41 @@ namespace Umbraco.Tests.Migrations
         [SetUp]
         public void Initialize()
         {
-            TestHelper.SetupLog4NetForTests();
-
-			MigrationResolver.Current = new MigrationResolver(() => new List<Type>
+            MigrationResolver.Current = new MigrationResolver(
+                Mock.Of<ILogger>(),
+                () => new List<Type>
 				{
 					typeof (AlterUserTableMigrationStub),
 					typeof(Dummy),
-					typeof (FourNineMigration),					
-					typeof (FourTenMigration),
-					typeof (FourElevenMigration)
+					typeof (SixZeroMigration1),					
+					typeof (SixZeroMigration2),
+					typeof (FourElevenMigration),
+                    typeof (FiveZeroMigration)                   
 				});
 
-			Resolution.Freeze();
+            var sqlSyntax = new SqlCeSyntaxProvider();
 
-            SqlSyntaxContext.SqlSyntaxProvider = SqlCeSyntax.Provider;
-        }       
+            //This is needed because the Migration resolver is creating migration instances with their full ctors
+            ApplicationContext.EnsureContext(
+                new ApplicationContext(
+                    new DatabaseContext(Mock.Of<IDatabaseFactory>(), Mock.Of<ILogger>(), sqlSyntax, "test"),
+                    new ServiceContext(), 
+                    CacheHelper.CreateDisabledCacheHelper(),
+                    new ProfilingLogger(Mock.Of<ILogger>(), Mock.Of<IProfiler>())),  
+                true);
+
+            //This is needed because the Migration resolver is creating the migration instances with their full ctors
+            LoggerResolver.Current = new LoggerResolver(Mock.Of<ILogger>())
+            {
+                CanResolveBeforeFrozen = true
+            };
+           
+			Resolution.Freeze();
+            
+        }
 
         [Test]
-        public void Can_Find_Migrations_With_Targtet_Version_Six()
+        public void Can_Find_Migrations_With_Target_Version_Six()
         {
 	        var foundMigrations = MigrationResolver.Current.Migrations;
             var targetVersion = new Version("6.0.0");
@@ -55,9 +75,10 @@ namespace Umbraco.Tests.Migrations
 
             Assert.That(list.Count, Is.EqualTo(3));
 
-            var context = new MigrationContext(DatabaseProviders.SqlServerCE, null);
-            foreach (MigrationBase migration in list)
+            var context = new MigrationContext(DatabaseProviders.SqlServerCE, null, Mock.Of<ILogger>());
+            foreach (var migration1 in list)
             {
+                var migration = (MigrationBase) migration1;
                 migration.GetUpExpressions(context);
             }
 
@@ -73,6 +94,7 @@ namespace Umbraco.Tests.Migrations
         [TearDown]
         public void TearDown()
         {	        
+            LoggerResolver.Reset();
             MigrationResolver.Reset();
         }
     }

@@ -12,6 +12,7 @@ using umbraco.cms.businesslogic.property;
 
 namespace Umbraco.Web.BaseRest
 {
+    [Obsolete("Umbraco /base is obsoleted, use WebApi (UmbracoApiController) instead for all REST based logic")]
 	public static class MemberRest
 	{
 		public static int GetCurrentMemberId()
@@ -100,14 +101,14 @@ namespace Umbraco.Web.BaseRest
 							{
 								prop.Value = value;
 								ret = "True";
-								m.XmlGenerate(new XmlDocument());
+							    m.Save();
 							}
 						}
 						else
 						{
 							prop.Value = value;
 							ret = "True";
-							m.XmlGenerate(new XmlDocument());
+                            m.Save();
 						}
 
 					}

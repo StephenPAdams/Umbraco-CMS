@@ -15,6 +15,7 @@ namespace Umbraco.Web.WebServices
     /// <summary>
     /// A REST controller used for the publish dialog in order to publish bulk items at once
     /// </summary>
+    [ValidateMvcAngularAntiForgeryToken]
     public class BulkPublishController : UmbracoAuthorizedController
     {
         /// <summary>
@@ -87,7 +88,7 @@ namespace Umbraco.Web.WebServices
                 case PublishStatusType.FailedHasExpired:                    
                 case PublishStatusType.FailedAwaitingRelease:
                 case PublishStatusType.FailedIsTrashed:
-                    return ""; //we will not notify about this type of failure... or should we ?                
+                    return "Cannot publish document with a status of " + status.StatusType;
                 case PublishStatusType.FailedCancelledByEvent:
                     return ui.Text("publish", "contentPublishedFailedByEvent",
                                    string.Format("{0} ({1})", status.ContentItem.Name, status.ContentItem.Id), UmbracoUser);

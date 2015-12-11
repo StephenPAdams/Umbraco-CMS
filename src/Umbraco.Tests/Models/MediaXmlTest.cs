@@ -12,6 +12,7 @@ using umbraco.interfaces;
 
 namespace Umbraco.Tests.Models
 {
+    [DatabaseTestBehavior(DatabaseBehavior.NewDbFileAndSchemaPerFixture)]
     [TestFixture]
     public class MediaXmlTest : BaseDatabaseFactoryTest
     {
@@ -23,7 +24,10 @@ namespace Umbraco.Tests.Models
 
         protected override void FreezeResolution()
         {
-            UrlSegmentProviderResolver.Current = new UrlSegmentProviderResolver(typeof(DefaultUrlSegmentProvider));
+            UrlSegmentProviderResolver.Current = new UrlSegmentProviderResolver(
+                new ActivatorServiceProvider(),
+                Logger,
+                typeof(DefaultUrlSegmentProvider));
             base.FreezeResolution();
         }
 
@@ -37,7 +41,7 @@ namespace Umbraco.Tests.Models
         public void Can_Generate_Xml_Representation_Of_Media()
         {
             // Arrange
-            var mediaType = MockedContentTypes.CreateImageMediaType();
+            var mediaType = MockedContentTypes.CreateImageMediaType("image2");
             ServiceContext.ContentTypeService.Save(mediaType);
 
             var media = MockedMedia.CreateMediaImage(mediaType, -1);

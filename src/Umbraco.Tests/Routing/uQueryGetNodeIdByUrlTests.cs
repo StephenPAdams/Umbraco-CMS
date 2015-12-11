@@ -1,25 +1,28 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+﻿using Moq;
 using NUnit.Framework;
-using Umbraco.Tests.Stubs;
+using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Tests.TestHelpers;
-using System.Configuration;
-using Umbraco.Web;
-using Umbraco.Web.PublishedCache.XmlPublishedCache;
+using Umbraco.Tests.TestHelpers.Stubs;
 using Umbraco.Web.Routing;
 using umbraco.BusinessLogic;
 using umbraco.cms.businesslogic.template;
 
 namespace Umbraco.Tests.Routing
 {
+    [DatabaseTestBehavior(DatabaseBehavior.NewDbFileAndSchemaPerFixture)]
 	[TestFixture]
 	public class uQueryGetNodeIdByUrlTests : BaseRoutingTest
 	{
+
+        private IUmbracoSettingsSection _umbracoSettings;
+
 		public override void Initialize()
 		{
 			base.Initialize();
+
+            //generate new mock settings and assign so we can configure in individual tests
+            _umbracoSettings = SettingsForTests.GenerateMockSettings();
+            SettingsForTests.ConfigureSettings(_umbracoSettings);
 
 			var url = "/test";
 			
@@ -29,7 +32,7 @@ namespace Umbraco.Tests.Routing
 			var t = Template.MakeNew("test", new User(0));
 
 			var umbracoContext = GetUmbracoContext(url, t.Id);
-            var urlProvider = new UrlProvider(umbracoContext, new IUrlProvider[] { new DefaultUrlProvider() });
+            var urlProvider = new UrlProvider(umbracoContext, _umbracoSettings.WebRouting, new IUrlProvider[] { new DefaultUrlProvider() });
 			var routingContext = new RoutingContext(
 				umbracoContext,
 				lookups,
@@ -42,6 +45,8 @@ namespace Umbraco.Tests.Routing
 			////assign the routing context back to the umbraco context
 			//umbracoContext.RoutingContext = routingContext;
 			Umbraco.Web.UmbracoContext.Current = routingContext.UmbracoContext;
+
+            
 		}
 
         public override void TearDown()
@@ -63,8 +68,10 @@ namespace Umbraco.Tests.Routing
 		{
 		    SettingsForTests.UseDirectoryUrls = true;
 		    SettingsForTests.HideTopLevelNodeFromPath = false;
-		    SettingsForTests.UseDomainPrefixes = false;
 
+            var requestMock = Mock.Get(_umbracoSettings.RequestHandler);
+            requestMock.Setup(x => x.UseDomainPrefixes).Returns(false);
+		    
 			Assert.AreEqual(nodeId, global::umbraco.uQuery.GetNodeIdByUrl("http://example.com" + url));
 		}
 
@@ -81,8 +88,10 @@ namespace Umbraco.Tests.Routing
 		{
             SettingsForTests.UseDirectoryUrls = true;
             SettingsForTests.HideTopLevelNodeFromPath = false;
-            SettingsForTests.UseDomainPrefixes = false;
 
+            var requestMock = Mock.Get(_umbracoSettings.RequestHandler);
+            requestMock.Setup(x => x.UseDomainPrefixes).Returns(false);
+            
 			Assert.AreEqual(nodeId, global::umbraco.uQuery.GetNodeIdByUrl(url));
 		}
 	}

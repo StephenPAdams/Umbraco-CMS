@@ -42,6 +42,13 @@ namespace SqlCE4Umbraco
             {
                 var sqlCeEngine = new SqlCeEngine(ConnectionString);
                 sqlCeEngine.CreateDatabase();
+
+                // SD: Pretty sure this should be in a using clause but i don't want to cause unknown side-effects here
+                // since it's been like this for quite some time
+                //using (var sqlCeEngine = new SqlCeEngine(ConnectionString))
+                //{
+                //    sqlCeEngine.CreateDatabase();    
+                //}
             }
         }
 
@@ -221,6 +228,18 @@ namespace SqlCE4Umbraco
 
             return new SqlCeDataReaderHelper(SqlCeApplicationBlock.ExecuteReader(ConnectionString, CommandType.Text,
                                                             commandText, parameters));
+        }
+
+
+        internal IRecordsReader ExecuteReader(string commandText)
+        {
+            return ExecuteReader(commandText, new SqlCEParameter(string.Empty, string.Empty));
+        }
+
+
+        internal int ExecuteNonQuery(string commandText)
+        {
+            return ExecuteNonQuery(commandText, new SqlCEParameter(string.Empty, string.Empty));
         }
     }
 }

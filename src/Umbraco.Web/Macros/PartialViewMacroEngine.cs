@@ -10,7 +10,9 @@ using System.Web.Routing;
 using System.Web.WebPages;
 using Umbraco.Core.IO;
 using umbraco.cms.businesslogic.macro;
+using Umbraco.Core.Models;
 using umbraco.interfaces;
+using Umbraco.Web.Models;
 using Umbraco.Web.Mvc;
 using Umbraco.Core;
 using System.Web.Mvc.Html;
@@ -98,18 +100,25 @@ namespace Umbraco.Web.Macros
             return true;
         }
 
-        public string Execute(MacroModel macro, INode currentPage)
+        public string Execute(MacroModel macro, INode node)
+        {
+            if (node == null) return string.Empty;
+
+            var umbCtx = _getUmbracoContext();
+            //NOTE: This is a bit of a nasty hack to check if the INode is actually already based on an IPublishedContent 
+            // (will be the case when using LegacyConvertedNode )
+            return Execute(macro,
+                (node is IPublishedContent)
+                    ? (IPublishedContent)node
+                    : umbCtx.ContentCache.GetById(node.Id));
+        }
+
+        public string Execute(MacroModel macro, IPublishedContent content)
         {
             if (macro == null) throw new ArgumentNullException("macro");
-            if (currentPage == null) throw new ArgumentNullException("currentPage");
+            if (content == null) throw new ArgumentNullException("content");
 			if (macro.ScriptName.IsNullOrWhiteSpace()) throw new ArgumentException("The ScriptName property of the macro object cannot be null or empty");
 		
-            if (!macro.ScriptName.StartsWith(SystemDirectories.MvcViews + "/MacroPartials/")
-                && (!Regex.IsMatch(macro.ScriptName, "~/App_Plugins/.+?/Views/MacroPartials", RegexOptions.Compiled)))
-            {
-                throw new InvalidOperationException("Cannot render the Partial View Macro with file: " + macro.ScriptName + ". All Partial View Macros must exist in the " + SystemDirectories.MvcViews + "/MacroPartials/ folder");
-            }
-
             var http = _getHttpContext();
             var umbCtx = _getUmbracoContext();
             var routeVals = new RouteData();
@@ -117,30 +126,25 @@ namespace Umbraco.Web.Macros
             routeVals.Values.Add("action", "Index");
             routeVals.DataTokens.Add("umbraco-context", umbCtx); //required for UmbracoViewPage
 
-			//lets render this controller as a child action if we are currently executing using MVC 
-			//(otherwise don't do this since we're using webforms)
-			var mvcHandler = http.CurrentHandler as MvcHandler;
+			//lets render this controller as a child action
 			var viewContext = new ViewContext {ViewData = new ViewDataDictionary()};;
-			if (mvcHandler != null)
-			{
-				//try and extract the current view context from the route values, this would be set in the UmbracoViewPage.
-				if (mvcHandler.RequestContext.RouteData.DataTokens.ContainsKey(Umbraco.Web.Mvc.Constants.DataTokenCurrentViewContext))
-				{
-					viewContext = (ViewContext) mvcHandler.RequestContext.RouteData.DataTokens[Umbraco.Web.Mvc.Constants.DataTokenCurrentViewContext];
-				}
-				routeVals.DataTokens.Add("ParentActionViewContext", viewContext);
-			}
+            //try and extract the current view context from the route values, this would be set in the UmbracoViewPage or in 
+            // the UmbracoPageResult if POSTing to an MVC controller but rendering in Webforms
+            if (http.Request.RequestContext.RouteData.DataTokens.ContainsKey(Mvc.Constants.DataTokenCurrentViewContext))
+            {
+                viewContext = (ViewContext)http.Request.RequestContext.RouteData.DataTokens[Mvc.Constants.DataTokenCurrentViewContext];
+            }
+            routeVals.DataTokens.Add("ParentActionViewContext", viewContext);
 
             var request = new RequestContext(http, routeVals);
             string output;
-            using (var controller = new PartialViewMacroController(umbCtx, macro, currentPage))
+            using (var controller = new PartialViewMacroController(macro, content))
             {
-				//bubble up the model state from the main view context to our custom controller.
-				//when merging we'll create a new dictionary, otherwise you might run into an enumeration error
-				// caused from ModelStateDictionary
-				controller.ModelState.Merge(new ModelStateDictionary(viewContext.ViewData.ModelState));
+                controller.ViewData = viewContext.ViewData;
+                
 				controller.ControllerContext = new ControllerContext(request, controller);
-				//call the action to render
+
+                //call the action to render
                 var result = controller.Index();
 				output = controller.RenderViewResultAsString(result);
             }

@@ -14,8 +14,7 @@ namespace Umbraco.Web.WebApi
     /// to just authenticated members, and optionally of a particular type and/or group
     /// </summary>
     public sealed class MemberAuthorizeAttribute : AuthorizeAttribute
-    {
-
+    {        
         private readonly UmbracoContext _umbracoContext;
 
         private UmbracoContext GetUmbracoContext()
@@ -44,6 +43,7 @@ namespace Umbraco.Web.WebApi
         /// <remarks>
         /// This is the same as applying the [AllowAnonymous] attribute
         /// </remarks>
+        [Obsolete("Use [AllowAnonymous] instead")]
         public bool AllowAll { get; set; }
 
         /// <summary>

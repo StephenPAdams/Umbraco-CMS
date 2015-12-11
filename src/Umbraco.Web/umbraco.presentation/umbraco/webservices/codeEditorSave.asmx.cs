@@ -12,16 +12,13 @@ using System.Web.UI;
 using System.Xml;
 using System.Xml.Xsl;
 using Umbraco.Core;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.IO;
 using Umbraco.Web.WebServices;
-using Umbraco.Web;
-using Umbraco.Web.Cache;
-using umbraco.BasePages;
 using umbraco.BusinessLogic;
 using umbraco.cms.businesslogic.macro;
 using umbraco.cms.businesslogic.template;
 using umbraco.cms.businesslogic.web;
-using umbraco.presentation.cache;
 using System.Net;
 using System.Collections;
 using umbraco.NodeFactory;
@@ -38,39 +35,25 @@ namespace umbraco.presentation.webservices
     public class codeEditorSave : UmbracoAuthorizedWebService
     {
 
+        [Obsolete("This method has been superceded by the REST service /Umbraco/RestServices/SaveFile/SaveStylesheet which is powered by the SaveFileController.")]
         [WebMethod]
         public string SaveCss(string fileName, string oldName, string fileContents, int fileID)
         {
             if (AuthorizeRequest(DefaultApps.settings.ToString()))
             {
-                string returnValue;
-                var stylesheet = new StyleSheet(fileID)
-                    {
-                        Content = fileContents, Text = fileName
-                    };
+                var stylesheet = Services.FileService.GetStylesheetByName(oldName.EnsureEndsWith(".css"));
+                if (stylesheet == null) throw new InvalidOperationException("No stylesheet found with name " + oldName);
 
-                try
+                stylesheet.Content = fileContents;
+                if (fileName.InvariantEquals(oldName) == false)
                 {
-                    stylesheet.saveCssToFile();
-                    stylesheet.Save();
-                    returnValue = "true";
-
-
-                    //deletes the old css file if the name was changed... 
-                    if (fileName.ToLowerInvariant() != oldName.ToLowerInvariant())
-                    {
-                        var p = IOHelper.MapPath(SystemDirectories.Css + "/" + oldName + ".css");
-                        if (File.Exists(p))
-                            File.Delete(p);
-                    }
-
-                }
-                catch (Exception ex)
-                {
-                    return ex.ToString();
+                    //it's changed which means we need to change the path
+                    stylesheet.Path = stylesheet.Path.TrimEnd(oldName.EnsureEndsWith(".css")) + fileName.EnsureEndsWith(".css");
                 }
 
-                return returnValue;
+                Services.FileService.SaveStylesheet(stylesheet, Security.CurrentUser.Id);
+
+                return "true";
             }
             return "false";
         }
@@ -80,6 +63,7 @@ namespace umbraco.presentation.webservices
         {
             if (AuthorizeRequest(DefaultApps.developer.ToString()))
             {
+                IOHelper.EnsurePathExists(SystemDirectories.Xslt);
 
                 // validate file
                 IOHelper.ValidateEditPath(IOHelper.MapPath(SystemDirectories.Xslt + "/" + fileName),
@@ -87,8 +71,7 @@ namespace umbraco.presentation.webservices
                 // validate extension
                 IOHelper.ValidateFileExtension(IOHelper.MapPath(SystemDirectories.Xslt + "/" + fileName),
                                                new List<string>() { "xsl", "xslt" });
-
-
+                
                 StreamWriter SW;
                 string tempFileName = IOHelper.MapPath(SystemDirectories.Xslt + "/" + DateTime.Now.Ticks + "_temp.xslt");
                 SW = File.CreateText(tempFileName);
@@ -103,7 +86,7 @@ namespace umbraco.presentation.webservices
                     try
                     {
                         // Check if there's any documents yet
-                        string xpath = UmbracoSettings.UseLegacyXmlSchema ? "/root/node" : "/root/*";
+                        string xpath = UmbracoConfig.For.UmbracoSettings().Content.UseLegacyXmlSchema ? "/root/node" : "/root/*";
                         if (content.Instance.XmlContent.SelectNodes(xpath).Count > 0)
                         {
                             var macroXML = new XmlDocument();
@@ -286,7 +269,7 @@ namespace umbraco.presentation.webservices
                         {
                             var engine = MacroEngineFactory.GetByFilename(tempFileName);
                             var tempErrorMessage = "";
-                            var xpath = UmbracoSettings.UseLegacyXmlSchema ? "/root/node" : "/root/*";
+                            var xpath = UmbracoConfig.For.UmbracoSettings().Content.UseLegacyXmlSchema ? "/root/node" : "/root/*";
                             if (
                                 !engine.Validate(fileContents, tempFileName, Node.GetNodeByXpath(xpath),
                                                  out tempErrorMessage))
@@ -373,6 +356,7 @@ namespace umbraco.presentation.webservices
 		//	return "false";
 		//}
 
+        [Obsolete("This method has been superceded by the REST service /Umbraco/RestServices/SaveFile/SaveScript which is powered by the SaveFileController.")]
         [WebMethod]
         public string SaveScript(string filename, string oldName, string contents)
         {
@@ -384,7 +368,7 @@ namespace umbraco.presentation.webservices
                                           SystemDirectories.Scripts);
                 // validate extension
                 IOHelper.ValidateFileExtension(IOHelper.MapPath(SystemDirectories.Scripts + "/" + filename),
-                                               UmbracoSettings.ScriptFileTypes.Split(',').ToList());
+                                               UmbracoConfig.For.UmbracoSettings().Content.ScriptFileTypes.ToList());
 
 
                 var val = contents;
@@ -410,7 +394,10 @@ namespace umbraco.presentation.webservices
                             if (File.Exists(saveOldPath))
                                 File.Delete(saveOldPath);
                         }
-                        
+
+                        //ensure the folder exists before saving
+                        Directory.CreateDirectory(Path.GetDirectoryName(savePath));
+
                         using (var sw = File.CreateText(savePath))
                         {
                             sw.Write(val);

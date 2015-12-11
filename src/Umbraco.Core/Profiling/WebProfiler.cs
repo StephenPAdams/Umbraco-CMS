@@ -82,9 +82,16 @@ namespace Umbraco.Core.Profiling
                 return false;
 
             var request = TryGetRequest(sender);
-            if (request.Success == false || request.Result.Url.IsClientSideRequest() || string.IsNullOrEmpty(request.Result["umbDebug"]))
+
+            if (request.Success == false || request.Result.Url.IsClientSideRequest())
                 return false;
-            
+
+            if (string.IsNullOrEmpty(request.Result.QueryString["umbDebug"]))
+                return true;
+
+            if (request.Result.Url.IsBackOfficeRequest(HttpRuntime.AppDomainAppVirtualPath))
+                return true;
+
             return true;
         }
 
@@ -97,7 +104,7 @@ namespace Umbraco.Core.Profiling
         /// </remarks>
         public string Render()
         {
-            return MiniProfiler.RenderIncludes().ToString();
+            return MiniProfiler.RenderIncludes(RenderPosition.Right).ToString();
         }
 
         /// <summary>
@@ -143,16 +150,16 @@ namespace Umbraco.Core.Profiling
         private Attempt<HttpRequestBase> TryGetRequest(object sender)
         {
             var app = sender as HttpApplication;
-            if (app == null) return Attempt<HttpRequestBase>.False;
+            if (app == null) return Attempt<HttpRequestBase>.Fail();
 
             try
             {
                 var req = app.Request;
-                return new Attempt<HttpRequestBase>(true, new HttpRequestWrapper(req));
+                return Attempt<HttpRequestBase>.Succeed(new HttpRequestWrapper(req));
             }
             catch (HttpException ex)
             {
-                return new Attempt<HttpRequestBase>(ex);
+                return Attempt<HttpRequestBase>.Fail(ex);
             }
         }
     }

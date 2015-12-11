@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.IO;
 using System.Text;
 using System.Web;
@@ -29,7 +30,7 @@ using Umbraco.Core;
 
 namespace umbraco
 {
-    [Tree(Constants.Applications.Settings, "dictionary", "Dictionary", action: "openDictionary()", sortOrder: 3)]
+    [Tree(Constants.Applications.Settings, Constants.Trees.Dictionary, "Dictionary", action: "openDictionary()", sortOrder: 3)]
     public class loadDictionary : BaseTree
 	{
         public loadDictionary(string application) : base(application) { }
@@ -53,11 +54,13 @@ namespace umbraco
 		public override void RenderJS(ref StringBuilder Javascript)
         {
             Javascript.Append(
-                @"
+				@"
+			function openDictionary() {
+				UmbClientMgr.contentFrame('settings/DictionaryItemList.aspx');
+			}
 			function openDictionaryItem(id) {
 				UmbClientMgr.contentFrame('settings/editDictionaryItem.aspx?id=' + id);
-			}
-			");
+			}");
         }
 
         public override void Render(ref XmlTree tree)
@@ -69,14 +72,13 @@ namespace umbraco
             else
                 tmp = new Dictionary.DictionaryItem(this.id).Children;
 
-            foreach (Dictionary.DictionaryItem di in tmp)
+            foreach (Dictionary.DictionaryItem di in tmp.OrderBy(a => a.key))
             {
                 XmlTreeNode xNode = XmlTreeNode.Create(this);
                 xNode.NodeID = di.id.ToString(); //dictionary_ + id.. 
                 xNode.Text = di.key;
                 xNode.Action = string.Format("javascript:openDictionaryItem({0});", di.id);
-                xNode.Icon = "settingDataType.gif";
-                xNode.OpenIcon = "settingDataType.gif";
+                xNode.Icon = "icon-book-alt";
                 xNode.NodeType = "DictionaryItem"; //this shouldn't be like this, it should be this.TreeAlias but the ui.config file points to this name.
                 xNode.Source = this.GetTreeServiceUrl(di.id);
 				xNode.HasChildren = di.hasChildren;

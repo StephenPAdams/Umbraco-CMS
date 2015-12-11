@@ -256,7 +256,21 @@
         contentType: 'application/json; charset=utf-8',
         error: function (x, t, e) {
             if (x.status.toString().startsWith("500")) {
-                $u.Sys.ApiMgr.getApp().handleAjaxException(x, t, e);
+                //show ysod overlay if we can
+                if (UmbClientMgr) {
+                    var startIndex = x.responseText.indexOf("<body");
+                    var endIndex = x.responseText.lastIndexOf("</body>");
+                    var body = x.responseText.substring(startIndex, endIndex + 7);
+                    var $div = $(body.replace("<body bgcolor=\"white\">", "<div style='display:none;overflow:auto;height:613px;'>").replace("</body>", "</div>"));
+                    $div.appendTo($(UmbClientMgr.mainWindow().document.getElementsByTagName("body")[0]));
+                    UmbClientMgr.openModalWindowForContent($div, "ysod", true, 640, 640, null, null, null, function() {
+                        //remove the $div
+                        $div.closest(".umbModalBox").remove();
+                    });
+                }
+                else {
+                    alert("Unhandled exception occurred.\nStatus: " + x.status + "\nMessage: " + x.statusText + "\n\n" + x.responseText);
+                }
             }
         }
     });
@@ -341,6 +355,22 @@
             };
         }
 
+    });
+
+    //This sets the default jquery ajax headers to include our csrf token, we
+    // need to user the beforeSend method because our token changes per user/login so
+    // it cannot be static
+    $.ajaxSetup({
+        beforeSend: function (xhr) {
+
+            function getCookie(name) {
+                var value = "; " + document.cookie;
+                var parts = value.split("; " + name + "=");
+                if (parts.length === 2) return parts.pop().split(";").shift();
+            }
+
+            xhr.setRequestHeader("X-XSRF-TOKEN", getCookie("XSRF-TOKEN"));
+        }
     });
 
 })(jQuery);

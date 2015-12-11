@@ -1,12 +1,19 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using System.Web.Mvc;
+using System.Web.Mvc.Async;
 
 namespace Umbraco.Web.Mvc
 {
 	/// <summary>
 	/// Ensures that if an action for the Template name is not explicitly defined by a user, that the 'Index' action will execute
 	/// </summary>
-	public class RenderActionInvoker : ControllerActionInvoker
-	{
+    public class RenderActionInvoker : AsyncControllerActionInvoker
+	{        
+
 
 		/// <summary>
 		/// Ensures that if an action for the Template name is not explicitly defined by a user, that the 'Index' action will execute
@@ -22,14 +29,14 @@ namespace Umbraco.Web.Mvc
 			//now we need to check if it exists, if not we need to return the Index by default
 			if (ad == null)
 			{
-                //check if the controller is an instance of IRenderMvcController
-				if (controllerContext.Controller is IRenderMvcController)
+                //check if the controller is an instance of IRenderController and find the index
+                if (controllerContext.Controller is IRenderController)
 				{
-					return new ReflectedActionDescriptor(controllerContext.Controller.GetType().GetMethod("Index"), "Index", controllerDescriptor);
-				}
+					return controllerDescriptor.FindAction(controllerContext, "Index");
+                }
 			}
 			return ad;
 		}
-
+        
 	}
 }

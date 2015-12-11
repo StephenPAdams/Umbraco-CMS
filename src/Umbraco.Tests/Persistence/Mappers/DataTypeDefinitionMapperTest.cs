@@ -11,7 +11,7 @@ namespace Umbraco.Tests.Persistence.Mappers
         public void Can_Map_Id_Property()
         {
             // Arrange
-            SqlSyntaxContext.SqlSyntaxProvider = SqlCeSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlCeSyntaxProvider();
 
             // Act
             string column = new DataTypeDefinitionMapper().Map("Id");
@@ -24,7 +24,7 @@ namespace Umbraco.Tests.Persistence.Mappers
         public void Can_Map_Key_Property()
         {
             // Arrange
-            SqlSyntaxContext.SqlSyntaxProvider = SqlCeSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlCeSyntaxProvider();
 
             // Act
             string column = new DataTypeDefinitionMapper().Map("Key");
@@ -37,7 +37,7 @@ namespace Umbraco.Tests.Persistence.Mappers
         public void Can_Map_DatabaseType_Property()
         {
             // Arrange
-            SqlSyntaxContext.SqlSyntaxProvider = SqlCeSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlCeSyntaxProvider();
 
             // Act
             string column = new DataTypeDefinitionMapper().Map("DatabaseType");
@@ -47,16 +47,16 @@ namespace Umbraco.Tests.Persistence.Mappers
         }
 
         [Test]
-        public void Can_Map_ControlId_Property()
+        public void Can_Map_PropertyEditorAlias_Property()
         {
             // Arrange
-            SqlSyntaxContext.SqlSyntaxProvider = SqlCeSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlCeSyntaxProvider();
 
             // Act
-            string column = new DataTypeDefinitionMapper().Map("ControlId");
+            string column = new DataTypeDefinitionMapper().Map("PropertyEditorAlias");
 
             // Assert
-            Assert.That(column, Is.EqualTo("[cmsDataType].[controlId]"));
+            Assert.That(column, Is.EqualTo("[cmsDataType].[propertyEditorAlias]"));
         }
     }
 }

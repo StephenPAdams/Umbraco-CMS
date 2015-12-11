@@ -6,9 +6,12 @@ using umbraco.interfaces;
 using umbraco.cms.businesslogic.media;
 using umbraco.cms.businesslogic;
 using umbraco.cms.businesslogic.property;
-using umbraco.presentation.nodeFactory;
 using System.Data;
 using Umbraco.Core;
+using umbraco.MacroEngines.Library;
+using Umbraco.Web;
+using Umbraco.Web.Models;
+using Umbraco.Web.umbraco.presentation;
 
 namespace umbraco.MacroEngines
 {
@@ -30,11 +33,20 @@ namespace umbraco.MacroEngines
         }
         public DynamicBackingItem(int Id)
         {
-            NodeFactory.Node baseNode = new NodeFactory.Node(Id);
+            if (Id == -1)
+            {
+                // passing in -1 needs to return a real node, the "root" node, which has no 
+                // properties (defaults apply) but can be used to access descendants, children, etc.
+                
+                this.content = new NodeFactory.Node(Id);
+                return;
+            }
+
+            var n = LegacyNodeHelper.ConvertToNode(UmbracoContext.Current.ContentCache.GetById(Id));
            
-            this.content = baseNode;
+            this.content = n;
             this.Type = DynamicBackingItemType.Content;
-            if (baseNode.Id == 0 && Id != 0)
+            if (n.Id == 0 && Id != 0)
             {
                 this.media = ExamineBackedMedia.GetUmbracoMedia(Id);
                 this.Type = DynamicBackingItemType.Media;
@@ -48,7 +60,6 @@ namespace umbraco.MacroEngines
         }
         public DynamicBackingItem(int Id, DynamicBackingItemType Type)
         {
-            NodeFactory.Node baseNode = new NodeFactory.Node(Id);
             if (Type == DynamicBackingItemType.Media)
             {
                 this.media = ExamineBackedMedia.GetUmbracoMedia(Id);
@@ -56,7 +67,18 @@ namespace umbraco.MacroEngines
             }
             else
             {
-                this.content = baseNode;
+                if (Id == -1)
+                {
+                    // passing in -1 needs to return a real node, the "root" node, which has no 
+                    // properties (defaults apply) but can be used to access descendants, children, etc.
+
+                    this.content = new NodeFactory.Node(Id);
+                }
+                else
+                {
+                    this.content = LegacyNodeHelper.ConvertToNode(UmbracoContext.Current.ContentCache.GetById(Id));    
+                }
+                
                 this.Type = Type;
             }
         }
@@ -146,7 +168,7 @@ namespace umbraco.MacroEngines
                         }
                         if (result != null)
                         {
-                            return new PropertyResult(alias, string.Format("{0}", result), Guid.Empty) { ContextAlias = content.NodeTypeAlias, ContextId = content.Id };
+                            return new PropertyResult(alias, string.Format("{0}", result)) { ContextAlias = content.NodeTypeAlias, ContextId = content.Id };
                         }
                     }
                 }
@@ -188,7 +210,7 @@ namespace umbraco.MacroEngines
                         }
                         if (result != null)
                         {
-                            return new PropertyResult(alias, string.Format("{0}", result), Guid.Empty) { ContextAlias = content.NodeTypeAlias, ContextId = content.Id };
+                            return new PropertyResult(alias, string.Format("{0}", result)) { ContextAlias = content.NodeTypeAlias, ContextId = content.Id };
                         }
                     }
                 }

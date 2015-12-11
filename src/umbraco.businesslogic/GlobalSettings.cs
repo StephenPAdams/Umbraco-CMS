@@ -9,7 +9,7 @@ using Umbraco.Core;
 using Umbraco.Core.Configuration;
 using umbraco.BusinessLogic;
 using umbraco.DataLayer;
-using umbraco.IO;
+using Umbraco.Core.IO;
 
 namespace umbraco
 {
@@ -101,31 +101,6 @@ namespace umbraco
 			get { return Umbraco.Core.SystemUtilities.GetCurrentTrustLevel(); }
         }
 
-
-        /// <summary>
-        /// Forces umbraco to be medium trust compatible
-        /// </summary>
-        /// <value>If true, umbraco will be medium-trust compatible, no matter what Permission level the server is on.</value>
-        [Obsolete("This property is no longer used and will be removed in future versions")]
-        public static bool UseMediumTrust
-        {
-			get
-			{
-				try
-				{
-					var trustLevel = SystemUtilities.GetCurrentTrustLevel();
-					if (trustLevel == AspNetHostingPermissionLevel.High || trustLevel == AspNetHostingPermissionLevel.Unrestricted)
-						return false;
-					else
-						return bool.Parse(ConfigurationManager.AppSettings["umbracoUseMediumTrust"]);
-				}
-				catch
-				{
-					return false;
-				}
-			}
-        }
-
         /// <summary>
         /// Saves a setting into the configuration file.
         /// </summary>
@@ -158,6 +133,7 @@ namespace umbraco
         /// Gets a value indicating whether the current version of umbraco is configured.
         /// </summary>
         /// <value><c>true</c> if configured; otherwise, <c>false</c>.</value>
+        [Obsolete("Do not use this, it is no longer in use and will be removed from the codebase in future versions")]
         public static bool Configured
         {
 			get { return Umbraco.Core.Configuration.GlobalSettings.Configured; }
@@ -249,6 +225,7 @@ namespace umbraco
         /// Returns a string value to determine if umbraco should disbable xslt extensions
         /// </summary>
         /// <value><c>"true"</c> if version xslt extensions are disabled, otherwise, <c>"false"</c></value>
+        [Obsolete("This is no longer used and will be removed from the codebase in future releases")]
         public static string DisableXsltExtensions
         {
 			get { return Umbraco.Core.Configuration.GlobalSettings.DisableXsltExtensions; }
@@ -258,6 +235,7 @@ namespace umbraco
         /// Returns a string value to determine if umbraco should use Xhtml editing mode in the wysiwyg editor
         /// </summary>
         /// <value><c>"true"</c> if Xhtml mode is enable, otherwise, <c>"false"</c></value>
+        [Obsolete("This is no longer used and will be removed from the codebase in future releases")]
         public static string EditXhtmlMode
         {
 			get { return Umbraco.Core.Configuration.GlobalSettings.EditXhtmlMode; }
@@ -339,7 +317,7 @@ namespace umbraco
         [Obsolete("Use Umbraco.Core.Configuration.UmbracoVersion.Current instead", false)]
         public static string VersionComment
         {
-			get { return Umbraco.Core.Configuration.UmbracoVersion.CurrentComment; }
+			get { return UmbracoVersion.CurrentComment; }
         }
 
 
@@ -352,12 +330,7 @@ namespace umbraco
         {
         	return Umbraco.Core.Configuration.GlobalSettings.RequestIsInUmbracoApplication(context);
         }
-
-        public static bool RequestIsLiveEditRedirector(HttpContext context)
-        {
-			return Umbraco.Core.Configuration.GlobalSettings.RequestIsLiveEditRedirector(context);
-        }
-
+        
         /// <summary>
         /// Gets a value indicating whether umbraco should force a secure (https) connection to the backoffice.
         /// </summary>

@@ -4,6 +4,7 @@ using System.Web.Mvc;
 using System.Web.Routing;
 using System.Web.UI;
 using Umbraco.Core;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Services;
 using Umbraco.Web.Security;
 using umbraco.DataLayer;
@@ -25,6 +26,7 @@ namespace Umbraco.Web.UI.Controls
             UmbracoContext = umbracoContext;
             InstanceId = Guid.NewGuid();
             Umbraco = new UmbracoHelper(umbracoContext);
+            _membershipHelper = new MembershipHelper(umbracoContext);
         }
 
         /// <summary>
@@ -34,6 +36,8 @@ namespace Umbraco.Web.UI.Controls
             : this(UmbracoContext.Current)
         {
         }
+
+        private readonly MembershipHelper _membershipHelper;
 
         /// <summary>
         /// Useful for debugging
@@ -46,11 +50,35 @@ namespace Umbraco.Web.UI.Controls
         public UmbracoHelper Umbraco { get; private set; }
 
         /// <summary>
+        /// Returns the MemberHelper instance
+        /// </summary>
+        public MembershipHelper Members
+        {
+            get { return _membershipHelper; }
+        }
+
+        /// <summary>
         /// Returns the current WebSecurity instance
         /// </summary>
         public WebSecurity Security
         {
             get { return UmbracoContext.Security; }
+        }
+
+        /// <summary>
+        /// Returns an ILogger
+        /// </summary>
+        public ILogger Logger
+        {
+            get { return ProfilingLogger.Logger; }
+        }
+
+        /// <summary>
+        /// Returns a ProfilingLogger
+        /// </summary>
+        public ProfilingLogger ProfilingLogger
+        {
+            get { return UmbracoContext.Application.ProfilingLogger; }
         }
 
         /// <summary>

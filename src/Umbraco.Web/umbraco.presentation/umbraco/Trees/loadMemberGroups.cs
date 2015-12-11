@@ -63,31 +63,30 @@ function openMemberGroup(id) {
 
         public override void Render(ref XmlTree tree)
         {
-            foreach(string role in Roles.GetAllRoles()) {
-//            MemberGroup[] MemberGroups = MemberGroup.GetAll;
-            
-//            for (int i = 0; i < MemberGroups.Length; i++)
-//            {
-                XmlTreeNode xNode = XmlTreeNode.Create(this);
-                xNode.NodeID = role;
-                xNode.Text = role;
-                xNode.Action = "javascript:openMemberGroup('" + HttpContext.Current.Server.UrlEncode(role.Replace("'", "\\'")) + "');";
-                xNode.Icon = "membergroup.gif";
-                xNode.OpenIcon = "membergroup.gif";
-                if (!Member.IsUsingUmbracoRoles())
-                {
-                    xNode.Menu = null;
-                }
+            var roles = Roles.GetAllRoles();
+            Array.Sort(roles);
 
-                OnBeforeNodeRender(ref tree, ref xNode, EventArgs.Empty);
-                if (xNode != null)
+            foreach(string role in roles) {
+                if (role.StartsWith(Constants.Conventions.Member.InternalRolePrefix) == false)
                 {
-                    tree.Add(xNode);
+                    XmlTreeNode xNode = XmlTreeNode.Create(this);
+                    xNode.NodeID = role;
+                    xNode.Text = role;
+                    xNode.Action = "javascript:openMemberGroup('" + HttpContext.Current.Server.UrlEncode(role.Replace("'", "\\'")) + "');";
+                    xNode.Icon = "icon-users";
+                    if (!Member.IsUsingUmbracoRoles())
+                    {
+                        xNode.Menu = null;
+                    }
+
+                    OnBeforeNodeRender(ref tree, ref xNode, EventArgs.Empty);
+                    if (xNode != null)
+                    {
+                        tree.Add(xNode);
+                    }
+                    OnAfterNodeRender(ref tree, ref xNode, EventArgs.Empty);
                 }
-                OnAfterNodeRender(ref tree, ref xNode, EventArgs.Empty);
             }
         }
-
 	}
-    
 }

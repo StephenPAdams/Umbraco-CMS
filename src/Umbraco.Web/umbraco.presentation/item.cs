@@ -4,8 +4,11 @@ using System.Web;
 using System.Xml;
 using StackExchange.Profiling;
 using Umbraco.Core;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.Models;
+using Umbraco.Web;
 using Umbraco.Core.Profiling;
+using Umbraco.Core.Strings;
 
 namespace umbraco
 {
@@ -59,34 +62,51 @@ namespace umbraco
             else
             {
                 // Loop through XML children we need to find the fields recursive
-                if (helper.FindAttribute(attributes, "recursive") == "true")
+                var recursive = helper.FindAttribute(attributes, "recursive") == "true";
+
+                if (publishedContent == null)
                 {
-                    if (publishedContent == null)
-                    {
-                        var recursiveVal = GetRecursiveValueLegacy(elements);
-                        _fieldContent = recursiveVal.IsNullOrWhiteSpace() ? _fieldContent : recursiveVal;
-                    }
-                    else
-                    {
-                        var recursiveVal = publishedContent.GetRecursiveValue(_fieldName);
-                        _fieldContent = recursiveVal.IsNullOrWhiteSpace() ? _fieldContent : recursiveVal;
-                    }
+                    var recursiveVal = GetRecursiveValueLegacy(elements);
+                    _fieldContent = recursiveVal.IsNullOrWhiteSpace() ? _fieldContent : recursiveVal;
+                }
+
+                //check for published content and get its value using that
+                if (publishedContent != null && (publishedContent.HasProperty(_fieldName) || recursive))
+                {
+                    var pval = publishedContent.GetPropertyValue(_fieldName, recursive);
+                    var rval = pval == null ? string.Empty : pval.ToString();
+                    _fieldContent = rval.IsNullOrWhiteSpace() ? _fieldContent : rval;
                 }
                 else
                 {
-                    if (elements[_fieldName] != null && !string.IsNullOrEmpty(elements[_fieldName].ToString()))
+                    //get the vaue the legacy way (this will not parse locallinks, etc... since that is handled with ipublishedcontent)
+                    var elt = elements[_fieldName];
+                    if (elt != null && string.IsNullOrEmpty(elt.ToString()) == false)
+                        _fieldContent = elt.ToString().Trim();
+                }
+
+                //now we check if the value is still empty and if so we'll check useIfEmpty
+                if (string.IsNullOrEmpty(_fieldContent))
+                {
+                    var altFieldName = helper.FindAttribute(attributes, "useIfEmpty");
+                    if (string.IsNullOrEmpty(altFieldName) == false)
                     {
-                        _fieldContent = elements[_fieldName].ToString().Trim();
-                    }
-                    else if (!string.IsNullOrEmpty(helper.FindAttribute(attributes, "useIfEmpty")))
-                    {
-                        if (elements[helper.FindAttribute(attributes, "useIfEmpty")] != null && !string.IsNullOrEmpty(elements[helper.FindAttribute(attributes, "useIfEmpty")].ToString()))
+                        if (publishedContent != null && (publishedContent.HasProperty(altFieldName) || recursive))
                         {
-                            _fieldContent = elements[helper.FindAttribute(attributes, "useIfEmpty")].ToString().Trim();
+                            var pval = publishedContent.GetPropertyValue(altFieldName, recursive);
+                            var rval = pval == null ? string.Empty : pval.ToString();
+                            _fieldContent = rval.IsNullOrWhiteSpace() ? _fieldContent : rval;
+                        }
+                        else
+                        {
+                            //get the vaue the legacy way (this will not parse locallinks, etc... since that is handled with ipublishedcontent)
+                            var elt = elements[altFieldName];
+                            if (elt != null && string.IsNullOrEmpty(elt.ToString()) == false)
+                                _fieldContent = elt.ToString().Trim();
                         }
                     }
-
                 }
+
             }
 
             ParseItem(attributes);
@@ -113,7 +133,7 @@ namespace umbraco
                     if (element == null)
                         continue;
 
-                    var xpath = UmbracoSettings.UseLegacyXmlSchema ? "./data [@alias = '{0}']" : "./{0}";
+                    var xpath = UmbracoConfig.For.UmbracoSettings().Content.UseLegacyXmlSchema ? "./data [@alias = '{0}']" : "./{0}";
                     var currentNode = element.SelectSingleNode(string.Format(xpath, _fieldName));
 
                     //continue if all is null
@@ -179,11 +199,11 @@ namespace umbraco
                 else if (helper.FindAttribute(attributes, "case") == "upper")
                     _fieldContent = _fieldContent.ToUpper();
                 else if (helper.FindAttribute(attributes, "case") == "title")
-                    _fieldContent = _fieldContent.ConvertCase(StringAliasCaseType.PascalCase);
+                    _fieldContent = _fieldContent.ToCleanString(CleanStringType.Ascii | CleanStringType.Alias | CleanStringType.PascalCase);
 
                 // OTHER FORMATTING FUNCTIONS
                 // If we use masterpages, this is moved to the ItemRenderer to add support for before/after in inline XSLT
-                if (!UmbracoSettings.UseAspNetMasterPages)
+                if (!UmbracoConfig.For.UmbracoSettings().Templates.UseAspNetMasterPages)
                 {
                     if (_fieldContent != "" && helper.FindAttribute(attributes, "insertTextBefore") != "")
                         _fieldContent = HttpContext.Current.Server.HtmlDecode(helper.FindAttribute(attributes, "insertTextBefore")) +

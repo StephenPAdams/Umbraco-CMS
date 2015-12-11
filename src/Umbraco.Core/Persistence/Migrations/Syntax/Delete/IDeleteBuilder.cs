@@ -1,4 +1,5 @@
-﻿using Umbraco.Core.Persistence.Migrations.Syntax.Delete.Column;
+﻿using System;
+using Umbraco.Core.Persistence.Migrations.Syntax.Delete.Column;
 using Umbraco.Core.Persistence.Migrations.Syntax.Delete.Constraint;
 using Umbraco.Core.Persistence.Migrations.Syntax.Delete.DefaultConstraint;
 using Umbraco.Core.Persistence.Migrations.Syntax.Delete.ForeignKey;

@@ -11,11 +11,12 @@ using System.Collections;
 using System.Collections.Generic;
 using Umbraco.Core;
 using Umbraco.Core.Cache;
+using Umbraco.Core.Configuration;
 using Umbraco.Web;
 using Umbraco.Web.Cache;
 using umbraco.DataLayer;
 using umbraco.BusinessLogic;
-using umbraco.IO;
+using Umbraco.Core.IO;
 using System.Web;
 
 namespace umbraco
@@ -23,7 +24,7 @@ namespace umbraco
     /// <summary>
     /// Holds methods for parsing and building umbraco templates
     /// </summary>
-    /// 
+    [Obsolete("Do not use this class, use Umbraco.Core.Service.IFileService to work with templates")]
     public class template
     {
         #region private variables
@@ -264,7 +265,7 @@ namespace umbraco
                             pageContent.Controls.Add(new LiteralControl("<div title=\"Macro Tag: '" + System.Web.HttpContext.Current.Server.HtmlEncode(tag) + "'\" style=\"border: 1px solid #009;\">"));
 
                         // NH: Switching to custom controls for macros
-                        if (UmbracoSettings.UseAspNetMasterPages)
+                        if (UmbracoConfig.For.UmbracoSettings().Templates.UseAspNetMasterPages)
                         {
                             umbraco.presentation.templateControls.Macro macroControl = new umbraco.presentation.templateControls.Macro();
                             macroControl.Alias = helper.FindAttribute(attributes, "macroalias");
@@ -310,7 +311,7 @@ namespace umbraco
                         {
 
                             // NH: Switching to custom controls for items
-                            if (UmbracoSettings.UseAspNetMasterPages)
+                            if (UmbracoConfig.For.UmbracoSettings().Templates.UseAspNetMasterPages)
                             {
                                 umbraco.presentation.templateControls.Item itemControl = new umbraco.presentation.templateControls.Item();
                                 itemControl.Field = helper.FindAttribute(attributes, "field");
@@ -496,8 +497,12 @@ namespace umbraco
             var t = ApplicationContext.Current.ApplicationCache.GetCacheItem(
                string.Format("{0}{1}", CacheKeys.TemplateFrontEndCacheKey, tId), () =>
                {
-                   using (var templateData = SqlHelper.ExecuteReader("select nodeId, alias, master, text, design from cmsTemplate inner join umbracoNode node on node.id = cmsTemplate.nodeId where nodeId = @templateID", SqlHelper.CreateParameter("@templateID", templateID)))
-                   {
+                   using (var templateData = SqlHelper.ExecuteReader(@"select nodeId, alias, node.parentID as master, text, design
+from cmsTemplate
+inner join umbracoNode node on (node.id = cmsTemplate.nodeId)
+where nodeId = @templateID",
+                           SqlHelper.CreateParameter("@templateID", templateID)))
+                    {
                        if (templateData.Read())
                        {
                            // Get template master and replace content where the template
@@ -524,7 +529,7 @@ namespace umbraco
             this._templateName = t._templateName;
 
             // Only check for master on legacy templates - can show error when using master pages.
-            if (!UmbracoSettings.UseAspNetMasterPages)
+            if (!UmbracoConfig.For.UmbracoSettings().Templates.UseAspNetMasterPages)
             {
                 checkForMaster(tId);
             }

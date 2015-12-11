@@ -40,8 +40,8 @@ function openUserTypes(id) {
                     XmlTreeNode node = XmlTreeNode.Create(this);
                     node.NodeID = userType.Id.ToString();
                     node.Action = string.Format("javascript:openUserTypes({0})", userType.Id.ToString());
-                    node.Icon = "user.gif";
-                    node.Text = userType.Alias;
+                    node.Icon = "icon-users";
+                    node.Text = userType.Name;
 
                     OnBeforeNodeRender(ref tree, ref node, EventArgs.Empty);
                     if (node != null)

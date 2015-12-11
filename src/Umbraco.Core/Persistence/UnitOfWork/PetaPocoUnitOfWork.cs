@@ -17,7 +17,7 @@ namespace Umbraco.Core.Persistence.UnitOfWork
 		internal Guid InstanceId { get; private set; }
 
 		private Guid _key;
-		private readonly List<Operation> _operations = new List<Operation>();
+        private readonly Queue<Operation> _operations = new Queue<Operation>();
 
 		/// <summary>
 		/// Creates a new unit of work instance
@@ -40,14 +40,12 @@ namespace Umbraco.Core.Persistence.UnitOfWork
 		/// <param name="repository">The <see cref="IUnitOfWorkRepository" /> participating in the transaction</param>
 		public void RegisterAdded(IEntity entity, IUnitOfWorkRepository repository)
 		{
-			_operations.Add(
-				new Operation
-					{
-						Entity = entity,
-						ProcessDate = DateTime.Now,
-						Repository = repository,
-						Type = TransactionType.Insert
-					});
+            _operations.Enqueue(new Operation
+            {
+                Entity = entity,
+                Repository = repository,
+                Type = TransactionType.Insert
+            });
 		}
 
 		/// <summary>
@@ -57,14 +55,13 @@ namespace Umbraco.Core.Persistence.UnitOfWork
 		/// <param name="repository">The <see cref="IUnitOfWorkRepository" /> participating in the transaction</param>
 		public void RegisterChanged(IEntity entity, IUnitOfWorkRepository repository)
 		{
-			_operations.Add(
-				new Operation
-					{
-						Entity = entity,
-						ProcessDate = DateTime.Now,
-						Repository = repository,
-						Type = TransactionType.Update
-					});
+		    _operations.Enqueue(
+		        new Operation
+		        {
+		            Entity = entity,
+		            Repository = repository,
+		            Type = TransactionType.Update
+		        });
 		}
 
 		/// <summary>
@@ -74,14 +71,13 @@ namespace Umbraco.Core.Persistence.UnitOfWork
 		/// <param name="repository">The <see cref="IUnitOfWorkRepository" /> participating in the transaction</param>
 		public void RegisterRemoved(IEntity entity, IUnitOfWorkRepository repository)
 		{
-			_operations.Add(
-				new Operation
-					{
-						Entity = entity,
-						ProcessDate = DateTime.Now,
-						Repository = repository,
-						Type = TransactionType.Delete
-					});
+		    _operations.Enqueue(
+		        new Operation
+		        {
+		            Entity = entity,
+		            Repository = repository,
+		            Type = TransactionType.Delete
+		        });
 		}
 
 		/// <summary>
@@ -93,30 +89,50 @@ namespace Umbraco.Core.Persistence.UnitOfWork
 		/// </remarks>
 		public void Commit()
 		{
-			using (var transaction = Database.GetTransaction())
-			{
-				foreach (var operation in _operations.OrderBy(o => o.ProcessDate))
-				{
-					switch (operation.Type)
-					{
-						case TransactionType.Insert:
-							operation.Repository.PersistNewItem(operation.Entity);
-							break;
-						case TransactionType.Delete:
-							operation.Repository.PersistDeletedItem(operation.Entity);
-							break;
-						case TransactionType.Update:
-							operation.Repository.PersistUpdatedItem(operation.Entity);
-							break;
-					}
-				}
-				transaction.Complete();	
-			}
-
-			// Clear everything
-			_operations.Clear();
-			_key = Guid.NewGuid();
+		    Commit(null);
 		}
+
+        /// <summary>
+        /// Commits all batched changes within the scope of a PetaPoco transaction <see cref="Transaction"/>
+        /// </summary>
+        /// <param name="transactionCompleting">
+        /// Allows you to set a callback which is executed before the transaction is committed, allow you to add additional SQL
+        /// operations to the overall commit process after the queue has been processed.
+        /// </param>
+        internal void Commit(Action<UmbracoDatabase> transactionCompleting)
+        {
+            using (var transaction = Database.GetTransaction())
+            {
+                while (_operations.Count > 0)
+                {
+                    var operation = _operations.Dequeue();
+                    switch (operation.Type)
+                    {
+                        case TransactionType.Insert:
+                            operation.Repository.PersistNewItem(operation.Entity);
+                            break;
+                        case TransactionType.Delete:
+                            operation.Repository.PersistDeletedItem(operation.Entity);
+                            break;
+                        case TransactionType.Update:
+                            operation.Repository.PersistUpdatedItem(operation.Entity);
+                            break;
+                    }
+                }
+
+                //Execute the callback if there is one
+                if (transactionCompleting != null)
+                {
+                    transactionCompleting(Database);    
+                }
+
+                transaction.Complete();
+            }
+
+            // Clear everything
+            _operations.Clear();
+            _key = Guid.NewGuid();
+        }
 
 		public object Key
 		{
@@ -137,12 +153,6 @@ namespace Umbraco.Core.Persistence.UnitOfWork
 			/// </summary>
 			/// <value>The entity.</value>
 			public IEntity Entity { get; set; }
-
-			/// <summary>
-			/// Gets or sets the process date.
-			/// </summary>
-			/// <value>The process date.</value>
-			public DateTime ProcessDate { get; set; }
 
 			/// <summary>
 			/// Gets or sets the repository.

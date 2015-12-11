@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
@@ -14,34 +15,6 @@ namespace Umbraco.Tests.PublishedContent
     [TestFixture]
 	public class DynamicPublishedContentTests : DynamicDocumentTestsBase<DynamicPublishedContent, DynamicPublishedContentList>
 	{
-		public override void Initialize()
-		{
-            var currDir = new DirectoryInfo(TestHelpers.TestHelper.CurrentAssemblyDirectory);
-
-            var configPath = Path.Combine(currDir.Parent.Parent.FullName, "config");
-            if (Directory.Exists(configPath) == false)
-                Directory.CreateDirectory(configPath);
-
-            var umbracoSettingsFile = Path.Combine(currDir.Parent.Parent.FullName, "config", "umbracoSettings.config");
-            if (System.IO.File.Exists(umbracoSettingsFile) == false)
-                System.IO.File.Copy(
-                    currDir.Parent.Parent.Parent.GetDirectories("Umbraco.Web.UI")
-                        .First()
-                        .GetDirectories("config").First()
-                        .GetFiles("umbracoSettings.Release.config").First().FullName,
-                    Path.Combine(currDir.Parent.Parent.FullName, "config", "umbracoSettings.config"),
-                    true);
-
-            Core.Configuration.UmbracoSettings.SettingsFilePath = Core.IO.IOHelper.MapPath(Core.IO.SystemDirectories.Config + Path.DirectorySeparatorChar, false);
-
-            base.Initialize();
-		}
-
-		public override void TearDown()
-		{
-			base.TearDown();
-		}
-
 		internal DynamicPublishedContent GetNode(int id)
 		{
 			//var template = Template.MakeNew("test", new User(0));
@@ -59,7 +32,50 @@ namespace Umbraco.Tests.PublishedContent
 			return GetNode(id).AsDynamic();
 		}
 
-		[Test]
+        [Test]
+        public void FirstChild()
+        {
+            var content = GetDynamicNode(1173);
+
+            var x = content.FirstChild();
+            Assert.IsNotNull(x);
+            Assert.IsInstanceOf<DynamicPublishedContent>(x);
+            Assert.AreEqual(1174, x.Id);
+
+            x = content.FirstChild("CustomDocument");
+            Assert.IsNotNull(x);
+            Assert.IsInstanceOf<DynamicPublishedContent>(x);
+            Assert.AreEqual(1177, x.Id);
+        }
+
+        [Test]
+        public void Children()
+        {
+            var content = GetDynamicNode(1173);
+
+            var l = content.Children;
+            Assert.AreEqual(4, l.Count());
+
+            // works - but not by calling the extension method
+            // because the binder will in fact re-route to the property first
+            l = content.Children();
+            Assert.AreEqual(4, l.Count());
+        }
+
+        [Test]
+        public void ChildrenOfType()
+        {
+            var content = GetDynamicNode(1173);
+
+            var l = content.Children;
+            Assert.AreEqual(4, l.Count());
+
+            // fails - because it fails to find extension methods?
+            l = content.Children("CustomDocument");
+            Assert.AreEqual(2, l.Count());
+        }
+
+        [Test]
 		public void Custom_Extension_Methods()
 		{
 			var asDynamic = GetDynamicNode(1173);
@@ -100,7 +116,16 @@ namespace Umbraco.Tests.PublishedContent
 			Assert.IsTrue(ddoc.HasProperty(Constants.Conventions.Content.UrlAlias));
 		}
 
-		/// <summary>
+        [Test]
+        public void U4_4559()
+        {
+            var doc = GetDynamicNode(1174);
+            var result = doc.AncestorOrSelf(1);
+            Assert.IsNotNull(result);
+            Assert.AreEqual(1046, result.Id);
+        }
+        
+        /// <summary>
 		/// Test class to mimic UmbracoHelper when returning docs
 		/// </summary>
 		public class TestHelper

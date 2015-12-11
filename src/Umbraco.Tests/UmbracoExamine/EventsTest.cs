@@ -3,19 +3,18 @@ using System.Linq;
 using Examine;
 using Lucene.Net.Store;
 using NUnit.Framework;
-using Umbraco.Tests.PartialTrust;
 using UmbracoExamine;
 
 namespace Umbraco.Tests.UmbracoExamine
 {
 	[TestFixture]
-	public class EventsTest : ExamineBaseTest<EventsTest>
+	public class EventsTest : ExamineBaseTest
 	{
 		[Test]
 		public void Events_Ignoring_Node()
 		{
 			//change the parent id so that they are all ignored
-			var existingCriteria = ((IndexCriteria)_indexer.IndexerData);
+			var existingCriteria = _indexer.IndexerData;
 			_indexer.IndexerData = new IndexCriteria(existingCriteria.StandardFields, existingCriteria.UserFields, existingCriteria.IncludeNodeTypes, existingCriteria.ExcludeNodeTypes,
 				999); //change to 999
 

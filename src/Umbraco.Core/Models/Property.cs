@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using Umbraco.Core.Models.EntityBase;
@@ -13,9 +16,10 @@ namespace Umbraco.Core.Models
     [DataContract(IsReference = true)]
     public class Property : Entity
     {
-        private readonly PropertyType _propertyType;
+        private PropertyType _propertyType;
         private Guid _version;
         private object _value;
+        private readonly PropertyTags _tagSupport = new PropertyTags();
 
         protected Property()
         {
@@ -43,6 +47,14 @@ namespace Umbraco.Core.Models
 
         private static readonly PropertyInfo ValueSelector = ExpressionHelper.GetPropertyInfo<Property, object>(x => x.Value);
         private static readonly PropertyInfo VersionSelector = ExpressionHelper.GetPropertyInfo<Property, Guid>(x => x.Version);
+        
+        /// <summary>
+        /// Returns the instance of the tag support, by default tags are not enabled
+        /// </summary>
+        internal PropertyTags TagSupport
+        {
+            get { return _tagSupport; }
+        }
 
         /// <summary>
         /// Returns the Alias of the PropertyType, which this Property is based on
@@ -59,15 +71,20 @@ namespace Umbraco.Core.Models
         /// <summary>
         /// Returns the DatabaseType that the underlaying DataType is using to store its values
         /// </summary>
-        /// <remarks>Only used internally when saving the property value</remarks>
+        /// <remarks>
+        /// Only used internally when saving the property value.
+        /// </remarks>
         [IgnoreDataMember]
-        internal DataTypeDatabaseType DataTypeDatabaseType { get { return _propertyType.DataTypeDatabaseType; } }
+        internal DataTypeDatabaseType DataTypeDatabaseType
+        {
+            get { return _propertyType.DataTypeDatabaseType; }
+        }
 
         /// <summary>
         /// Returns the PropertyType, which this Property is based on
         /// </summary>
         [IgnoreDataMember]
-        internal PropertyType PropertyType { get { return _propertyType; } }
+        public PropertyType PropertyType { get { return _propertyType; } }
         
         /// <summary>
         /// Gets or Sets the version id for the Property
@@ -106,7 +123,7 @@ namespace Umbraco.Core.Models
             {
                 bool typeValidation = _propertyType.IsPropertyTypeValid(value);
 
-                if (!typeValidation)
+                if (typeValidation == false)
                     throw new Exception(
                         string.Format(
                             "Type validation failed. The value type: '{0}' does not match the DataType in PropertyType with alias: '{1}'",
@@ -116,7 +133,35 @@ namespace Umbraco.Core.Models
                 {
                     _value = value;
                     return _value;
-                }, _value, ValueSelector);
+                }, _value, ValueSelector, 
+                new DelegateEqualityComparer<object>(
+                    (o, o1) =>
+                    {
+                        if (o == null && o1 == null) return true;
+
+                        //custom comparer for strings.                        
+                        if (o is string || o1 is string)                            
+                        {
+                            //if one is null and another is empty then they are the same
+                            if ((o as string).IsNullOrWhiteSpace() && (o1 as string).IsNullOrWhiteSpace())
+                            {
+                                return true;   
+                            }
+                            if (o == null || o1 == null) return false;
+                            return o.Equals(o1);
+                        }
+                        
+                        if (o == null || o1 == null) return false;
+
+                        //Custom comparer for enumerable if it is enumerable
+                        var enum1 = o as IEnumerable;
+                        var enum2 = o1 as IEnumerable;
+                        if (enum1 != null && enum2 != null)
+                        {
+                            return enum1.Cast<object>().UnsortedSequenceEqual(enum2.Cast<object>());
+                        }
+                        return o.Equals(o1);
+                    }, o => o.GetHashCode()));
             }
         }
 
@@ -141,6 +186,21 @@ namespace Umbraco.Core.Models
         public bool IsValid(object value)
         {
             return _propertyType.IsPropertyValueValid(value);
+        }
+
+        public override object DeepClone()
+        {
+            var clone = (Property)base.DeepClone();
+            //turn off change tracking
+            clone.DisableChangeTracking();
+            //need to manually assign since this is a readonly property
+            clone._propertyType = (PropertyType)PropertyType.DeepClone();
+            //this shouldn't really be needed since we're not tracking
+            clone.ResetDirtyProperties(false);
+            //re-enable tracking
+            clone.EnableChangeTracking();
+            
+            return clone;
         }
     }
 }

@@ -1,85 +1,34 @@
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Data;
 using System.Linq;
+
+using Umbraco.Core;
+using Umbraco.Core.Models;
+using Umbraco.Core.Persistence;
+using Umbraco.Core.Persistence.SqlSyntax;
 using umbraco.DataLayer;
 using umbraco.BusinessLogic;
 using System.Collections.Generic;
+using Umbraco.Core.Models.Rdbms;
 
 namespace umbraco.cms.businesslogic.language
 {
-    /// <summary>
-    /// THIS CLASS IS NOT INTENDED TO BE USED DIRECTLY IN YOUR CODE, USE THE umbraco.cms.businesslogic.Dictionary class instead
-    /// </summary>
-    /// <remarks>
-    /// This class is used by the DictionaryItem, all caching is handled in the DictionaryItem.Save() method which will ensure that
-    /// cache is invalidated if anything is changed.
-    /// </remarks>
-    [Obsolete("THIS CLASS IS NOT INTENDED TO BE USED DIRECTLY IN YOUR CODE, USE THE umbraco.cms.businesslogic.Dictionary class instead")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [Obsolete("This class is no longer used, nor should it ever be used, it will be removed from the codebase in future versions")]
     public class Item
     {
-        private static readonly ConcurrentDictionary<Guid, Dictionary<int, string>> Items = new ConcurrentDictionary<Guid, Dictionary<int, string>>();        
-        private static volatile bool _isInitialize;
-        private static readonly object Locker = new object();
 
         /// <summary>
         /// Gets the SQL helper.
         /// </summary>
         /// <value>The SQL helper.</value>
+        [Obsolete("Obsolete, For querying the database use the new UmbracoDatabase object ApplicationContext.Current.DatabaseContext.Database", false)]
         protected static ISqlHelper SqlHelper
         {
             get { return Application.SqlHelper; }
-        }
-
-        /// <summary>
-        /// Populates the global hash table with the data from the database.
-        /// </summary>
-        private static void EnsureCache()
-        {
-            if (!_isInitialize)
-            {
-                lock (Locker)
-                {
-                    //double check
-                    if (!_isInitialize)
-                    {
-                        // load all data
-                        using (IRecordsReader dr = SqlHelper.ExecuteReader("Select LanguageId, UniqueId,[value] from cmsLanguageText order by UniqueId"))
-                        {
-                            while (dr.Read())
-                            {
-                                var languageId = dr.GetInt("LanguageId");
-                                var uniqueId = dr.GetGuid("UniqueId");
-                                var text = dr.GetString("value");
-
-                                Items.AddOrUpdate(uniqueId, guid =>
-                                    {
-                                        var languagevalues = new Dictionary<int, string> { { languageId, text } };
-                                        return languagevalues;
-                                    }, (guid, dictionary) =>
-                                        {
-                                            // add/update the text for the id
-                                            dictionary[languageId] = text;
-                                            return dictionary;
-                                        });
-                            }
-                        }                        
-                        _isInitialize = true;
-                    }                    
-                }
-               
-            }
-        }
-
-        /// <summary>
-        /// Clears the cache, this is used for cache refreshers to ensure that the cache is up to date across all servers 
-        /// </summary>
-        internal static void ClearCache()
-        {
-            Items.Clear();
-            //reset the flag so that we re-lookup the cache
-            _isInitialize = false;
         }
 
         /// <summary>
@@ -90,13 +39,17 @@ namespace umbraco.cms.businesslogic.language
         /// <returns>The language translated text</returns>
         public static string Text(Guid key, int languageId)
         {
-            EnsureCache();
 
-            Dictionary<int, string> val;
-            if (Items.TryGetValue(key, out val))
+            var item = ApplicationContext.Current.Services.LocalizationService.GetDictionaryItemById(key);
+            if (item != null)
             {
-                return val[languageId];
-            }            
+                var translation = item.Translations.FirstOrDefault(x => x.Language.Id == languageId);
+                if (translation != null)
+                {
+                    return translation.Value;
+                }
+            }
+
             throw new ArgumentException("Key being requested does not exist");
         }
 
@@ -108,14 +61,14 @@ namespace umbraco.cms.businesslogic.language
         /// <returns>returns True if there is a value associated to the unique identifier with the specified language</returns>
         public static bool hasText(Guid key, int languageId)
         {
-            EnsureCache();
-
-            Dictionary<int, string> val;
-            if (Items.TryGetValue(key, out val))
+            try
             {
-                return val.ContainsKey(languageId);
+                return Text(key, languageId).IsNullOrWhiteSpace() == false;
             }
-            return false;
+            catch (ArgumentException)
+            {
+                return false;
+            }
         }
         
         /// <summary>
@@ -128,12 +81,24 @@ namespace umbraco.cms.businesslogic.language
 
         public static void setText(int languageId, Guid key, string value)
         {
-            if (!hasText(key, languageId)) throw new ArgumentException("Key does not exist");
-            
-            SqlHelper.ExecuteNonQuery("Update cmsLanguageText set [value] = @value where LanguageId = @languageId And UniqueId = @key",
-                SqlHelper.CreateParameter("@value", value),
-                SqlHelper.CreateParameter("@languageId", languageId),
-                SqlHelper.CreateParameter("@key", key));
+            var lang = ApplicationContext.Current.Services.LocalizationService.GetLanguageById(languageId);
+            if (lang == null) return;
+
+            var item = ApplicationContext.Current.Services.LocalizationService.GetDictionaryItemById(key);
+            if (item != null)
+            {
+                var translation = item.Translations.FirstOrDefault(x => x.Language.Id == languageId);
+                if (translation == null)
+                {
+                    throw new ArgumentException("Key does not exist");
+                }
+                var newTranslations = new List<IDictionaryTranslation>(item.Translations)
+                {
+                    new DictionaryTranslation(lang, value)
+                };
+                item.Translations = newTranslations;
+                ApplicationContext.Current.Services.LocalizationService.Save(item);
+            }
         }
 
         /// <summary>
@@ -145,12 +110,24 @@ namespace umbraco.cms.businesslogic.language
         /// <param name="value"></param>
         public static void addText(int languageId, Guid key, string value)
         {
-            if (hasText(key, languageId)) throw new ArgumentException("Key being add'ed already exists");
-            
-            SqlHelper.ExecuteNonQuery("Insert Into cmsLanguageText (languageId,UniqueId,[value]) values (@languageId, @key, @value)",
-                SqlHelper.CreateParameter("@languageId", languageId),
-                SqlHelper.CreateParameter("@key", key),
-                SqlHelper.CreateParameter("@value", value));
+            var lang = ApplicationContext.Current.Services.LocalizationService.GetLanguageById(languageId);
+            if (lang == null) return;
+
+            var item = ApplicationContext.Current.Services.LocalizationService.GetDictionaryItemById(key);
+            if (item != null)
+            {
+                var translation = item.Translations.FirstOrDefault(x => x.Language.Id == languageId);
+                if (translation != null)
+                {
+                    throw new ArgumentException("Key being add'ed already exists");
+                }
+                var newTranslations = new List<IDictionaryTranslation>(item.Translations)
+                {
+                    new DictionaryTranslation(lang, value)
+                };
+                item.Translations = newTranslations;
+                ApplicationContext.Current.Services.LocalizationService.Save(item);
+            }
         }
         
         /// <summary>
@@ -159,9 +136,11 @@ namespace umbraco.cms.businesslogic.language
         /// <param name="key">Unique identifier</param>
         public static void removeText(Guid key)
         {
-            // remove from database
-            SqlHelper.ExecuteNonQuery("Delete from cmsLanguageText where UniqueId =  @key",
-                SqlHelper.CreateParameter("@key", key));
+            var found = ApplicationContext.Current.Services.LocalizationService.GetDictionaryItemById(key);
+            if (found != null)
+            {
+                ApplicationContext.Current.Services.LocalizationService.Delete(found);    
+            }
         }
 
         /// <summary>
@@ -169,12 +148,14 @@ namespace umbraco.cms.businesslogic.language
         /// Primary used when deleting a language from Umbraco.
         /// </summary>
         /// <param name="languageId"></param>
+        [Obsolete("This is no longer used and will be removed from the codebase in future versions")]
         public static void RemoveByLanguage(int languageId)
         {
-            // remove from database
-            SqlHelper.ExecuteNonQuery("Delete from cmsLanguageText where languageId =  @languageId",
-                SqlHelper.CreateParameter("@languageId", languageId));
-
+            var lang = ApplicationContext.Current.Services.LocalizationService.GetLanguageById(languageId);
+            if (lang != null)
+            {
+                ApplicationContext.Current.Services.LocalizationService.Delete(lang);    
+            }
         }
     }
 }

@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using Umbraco.Core.Models.EntityBase;
+using Umbraco.Core.Strings;
 
 namespace Umbraco.Core.Models
 {
@@ -13,6 +16,7 @@ namespace Umbraco.Core.Models
     /// </summary>
     [Serializable]
     [DataContract(IsReference = true)]
+    [DebuggerDisplay("Id: {Id}, Name: {Name}, Alias: {Alias}")]
     public abstract class ContentTypeBase : Entity, IContentTypeBase
     {
         private Lazy<int> _parentId;
@@ -42,17 +46,26 @@ namespace Umbraco.Core.Models
             _allowedContentTypes = new List<ContentTypeSort>();
             _propertyGroups = new PropertyGroupCollection();
             _propertyTypes = new PropertyTypeCollection();
+            _propertyTypes.CollectionChanged += PropertyTypesChanged;
+            _additionalData = new Dictionary<string, object>();
         }
 
-		protected ContentTypeBase(IContentTypeBase parent)
+		protected ContentTypeBase(IContentTypeBase parent) : this(parent, null)
 		{
-			Mandate.ParameterNotNull(parent, "parent");
-
-			_parentId = new Lazy<int>(() => parent.Id);
-			_allowedContentTypes = new List<ContentTypeSort>();
-			_propertyGroups = new PropertyGroupCollection();
-            _propertyTypes = new PropertyTypeCollection();
 		}
+
+        protected ContentTypeBase(IContentTypeBase parent, string alias)
+        {
+            Mandate.ParameterNotNull(parent, "parent");
+
+            _alias = alias;
+            _parentId = new Lazy<int>(() => parent.Id);
+            _allowedContentTypes = new List<ContentTypeSort>();
+            _propertyGroups = new PropertyGroupCollection();
+            _propertyTypes = new PropertyTypeCollection();
+            _propertyTypes.CollectionChanged += PropertyTypesChanged;
+            _additionalData = new Dictionary<string, object>();
+        }
 
         private static readonly PropertyInfo NameSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, string>(x => x.Name);
         private static readonly PropertyInfo ParentIdSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, int>(x => x.ParentId);
@@ -168,7 +181,8 @@ namespace Umbraco.Core.Models
             {
                 SetPropertyValueAndDetectChanges(o =>
                     {
-                        _alias = value.ToSafeAlias();
+                        //_alias = value.ToSafeAlias();
+                        _alias = value.ToCleanString(CleanStringType.Alias | CleanStringType.UmbracoCase);
                         return _alias;
                     }, _alias, AliasSelector);
             }
@@ -314,6 +328,16 @@ namespace Umbraco.Core.Models
             }
         }
 
+        private IDictionary<string, object> _additionalData;
+        /// <summary>
+        /// Some entities may expose additional data that other's might not, this custom data will be available in this collection
+        /// </summary>
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        IDictionary<string, object> IUmbracoEntity.AdditionalData
+        {
+            get { return _additionalData; }
+        }
+
         /// <summary>
         /// Gets or sets a list of integer Ids for allowed ContentTypes
         /// </summary>
@@ -327,14 +351,20 @@ namespace Umbraco.Core.Models
                 {
                     _allowedContentTypes = value;
                     return _allowedContentTypes;
-                }, _allowedContentTypes, AllowedContentTypesSelector);
+                }, _allowedContentTypes, AllowedContentTypesSelector,
+                    //Custom comparer for enumerable
+                    new DelegateEqualityComparer<IEnumerable<ContentTypeSort>>(
+                        (sorts, enumerable) => sorts.UnsortedSequenceEqual(enumerable),
+                        sorts => sorts.GetHashCode()));
             }
         }
 
         /// <summary>
         /// List of PropertyGroups available on this ContentType
         /// </summary>
-        /// <remarks>A PropertyGroup corresponds to a Tab in the UI</remarks>
+        /// <remarks>
+        /// A PropertyGroup corresponds to a Tab in the UI
+        /// </remarks>
         [DataMember]
         public virtual PropertyGroupCollection PropertyGroups
         {
@@ -350,7 +380,16 @@ namespace Umbraco.Core.Models
         /// List of PropertyTypes available on this ContentType.
         /// This list aggregates PropertyTypes across the PropertyGroups.
         /// </summary>
+        /// <remarks>
+        /// 
+        /// The setter is used purely to set the property types that DO NOT belong to a group!
+        /// 
+        /// Marked as DoNotClone because the result of this property is not the natural result of the data, it is 
+        /// a union of data so when auto-cloning if the setter is used it will be setting the unnatural result of the 
+        /// data. We manually clone this instead. 
+        /// </remarks>
         [IgnoreDataMember]
+        [DoNotClone]
         public virtual IEnumerable<PropertyType> PropertyTypes
         {
             get
@@ -366,6 +405,14 @@ namespace Umbraco.Core.Models
         }
 
         /// <summary>
+        /// Returns the property type collection containing types that are non-groups - used for tests
+        /// </summary>
+        internal IEnumerable<PropertyType> NonGroupedPropertyTypes
+        {
+            get { return _propertyTypes; }
+        }
+
+            /// <summary>
         /// A boolean flag indicating if a property type has been removed from this instance.
         /// </summary>
         /// <remarks>
@@ -413,10 +460,14 @@ namespace Umbraco.Core.Models
         /// <returns>Returns <c>True</c> if PropertyType was added, otherwise <c>False</c></returns>
         public bool AddPropertyType(PropertyType propertyType)
         {
+            if (propertyType.HasIdentity == false)
+            {
+                propertyType.Key = Guid.NewGuid();
+            }
+
             if (PropertyTypeExists(propertyType.Alias) == false)
             {
-                _propertyTypes.Add(propertyType);
-                _propertyTypes.CollectionChanged += PropertyTypesChanged;
+                _propertyTypes.Add(propertyType);                
                 return true;
             }
 
@@ -457,7 +508,6 @@ namespace Umbraco.Core.Models
         /// <param name="propertyTypeAlias">Alias of the <see cref="PropertyType"/> to remove</param>
         public void RemovePropertyType(string propertyTypeAlias)
         {
-
             //check if the property exist in one of our collections
             if (PropertyGroups.Any(group => group.PropertyTypes.Any(pt => pt.Alias == propertyTypeAlias))
                 || _propertyTypes.Any(x => x.Alias == propertyTypeAlias))
@@ -483,7 +533,20 @@ namespace Umbraco.Core.Models
         /// <param name="propertyGroupName">Name of the <see cref="PropertyGroup"/> to remove</param>
         public void RemovePropertyGroup(string propertyGroupName)
         {
+            // if no group exists with that name, do nothing
+            var group = PropertyGroups[propertyGroupName];
+            if (group == null) return;
+
+            // re-assign the group's properties to no group
+            foreach (var property in group.PropertyTypes)
+            {
+                property.PropertyGroupId = new Lazy<int>(() => 0);
+                _propertyTypes.Add(property);
+            }
+
+            // actually remove the group
             PropertyGroups.RemoveItem(propertyGroupName);
+            OnPropertyChanged(PropertyGroupCollectionSelector);
         }
 
         /// <summary>
@@ -502,6 +565,85 @@ namespace Umbraco.Core.Models
         internal PropertyTypeCollection PropertyTypeCollection
         {
              get { return _propertyTypes; }
+        }
+
+        /// <summary>
+        /// Indicates whether a specific property on the current <see cref="IContent"/> entity is dirty.
+        /// </summary>
+        /// <param name="propertyName">Name of the property to check</param>
+        /// <returns>True if Property is dirty, otherwise False</returns>
+        public override bool IsPropertyDirty(string propertyName)
+        {
+            bool existsInEntity = base.IsPropertyDirty(propertyName);
+
+            bool anyDirtyGroups = PropertyGroups.Any(x => x.IsPropertyDirty(propertyName));
+            bool anyDirtyTypes = PropertyTypes.Any(x => x.IsPropertyDirty(propertyName));
+
+            return existsInEntity || anyDirtyGroups || anyDirtyTypes;
+        }
+
+        /// <summary>
+        /// Indicates whether the current entity is dirty.
+        /// </summary>
+        /// <returns>True if entity is dirty, otherwise False</returns>
+        public override bool IsDirty()
+        {
+            bool dirtyEntity = base.IsDirty();
+
+            bool dirtyGroups = PropertyGroups.Any(x => x.IsDirty());
+            bool dirtyTypes = PropertyTypes.Any(x => x.IsDirty());
+
+            return dirtyEntity || dirtyGroups || dirtyTypes;
+        }
+
+        /// <summary>
+        /// Resets dirty properties by clearing the dictionary used to track changes.
+        /// </summary>
+        /// <remarks>
+        /// Please note that resetting the dirty properties could potentially
+        /// obstruct the saving of a new or updated entity.
+        /// </remarks>
+        public override void ResetDirtyProperties()
+        {
+            base.ResetDirtyProperties();
+
+            //loop through each property group to reset the property types
+            var propertiesReset = new List<int>();
+
+            foreach (var propertyGroup in PropertyGroups)
+            {
+                propertyGroup.ResetDirtyProperties();
+                foreach (var propertyType in propertyGroup.PropertyTypes)
+                {
+                    propertyType.ResetDirtyProperties();
+                    propertiesReset.Add(propertyType.Id);
+                }
+            }
+            //then loop through our property type collection since some might not exist on a property group
+            //but don't re-reset ones we've already done.
+            foreach (var propertyType in PropertyTypes.Where(x => propertiesReset.Contains(x.Id) == false))
+            {
+                propertyType.ResetDirtyProperties();
+            }
+        }
+
+        public override object DeepClone()
+        {
+            var clone = (ContentTypeBase)base.DeepClone();
+            //turn off change tracking
+            clone.DisableChangeTracking();
+            //need to manually wire up the event handlers for the property type collections - we've ensured
+            // its ignored from the auto-clone process because its return values are unions, not raw and 
+            // we end up with duplicates, see: http://issues.umbraco.org/issue/U4-4842
+
+            clone._propertyTypes = (PropertyTypeCollection)_propertyTypes.DeepClone();
+            clone._propertyTypes.CollectionChanged += clone.PropertyTypesChanged;
+            //this shouldn't really be needed since we're not tracking
+            clone.ResetDirtyProperties(false);
+            //re-enable tracking
+            clone.EnableChangeTracking();
+
+            return clone;
         }
     }
 }

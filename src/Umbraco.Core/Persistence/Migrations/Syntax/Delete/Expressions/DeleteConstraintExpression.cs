@@ -5,7 +5,9 @@ namespace Umbraco.Core.Persistence.Migrations.Syntax.Delete.Expressions
 {
     public class DeleteConstraintExpression : MigrationExpressionBase
     {
-        public DeleteConstraintExpression(ConstraintType type)
+        
+        public DeleteConstraintExpression(DatabaseProviders current, DatabaseProviders[] databaseProviders, ISqlSyntaxProvider sqlSyntax, ConstraintType type)
+            : base(current, databaseProviders, sqlSyntax)
         {
             Constraint = new ConstraintDefinition(type);
         }
@@ -14,9 +16,30 @@ namespace Umbraco.Core.Persistence.Migrations.Syntax.Delete.Expressions
 
         public override string ToString()
         {
-            return string.Format(SqlSyntaxContext.SqlSyntaxProvider.DeleteConstraint,
-                                 SqlSyntaxContext.SqlSyntaxProvider.GetQuotedTableName(Constraint.TableName),
-                                 SqlSyntaxContext.SqlSyntaxProvider.GetQuotedName(Constraint.ConstraintName));
+            // Test for MySQL primary key situation.
+            if (CurrentDatabaseProvider == DatabaseProviders.MySql)
+            {
+                if (Constraint.IsPrimaryKeyConstraint)
+                {
+                    return string.Format(SqlSyntax.DeleteConstraint,
+                                     SqlSyntax.GetQuotedTableName(Constraint.TableName),
+                                     "PRIMARY KEY",
+                                     "");
+                }
+                else
+                {
+                    return string.Format(SqlSyntax.DeleteConstraint,
+                                     SqlSyntax.GetQuotedTableName(Constraint.TableName),
+                                     "FOREIGN KEY",
+                                     "");
+                }
+            }
+            else
+            {
+                return string.Format(SqlSyntax.DeleteConstraint,
+                                 SqlSyntax.GetQuotedTableName(Constraint.TableName),
+                                 SqlSyntax.GetQuotedName(Constraint.ConstraintName));
+            }
         }
     }
 }

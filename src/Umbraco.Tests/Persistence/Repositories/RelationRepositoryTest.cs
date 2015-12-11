@@ -1,9 +1,13 @@
 ﻿using System;
 using System.Linq;
+using Moq;
 using NUnit.Framework;
 using Umbraco.Core;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
-using Umbraco.Core.Persistence.Caching;
+using Umbraco.Core.Models.Rdbms;
+using Umbraco.Core.Persistence;
+
 using Umbraco.Core.Persistence.Querying;
 using Umbraco.Core.Persistence.Repositories;
 using Umbraco.Core.Persistence.UnitOfWork;
@@ -14,227 +18,240 @@ using umbraco.interfaces;
 
 namespace Umbraco.Tests.Persistence.Repositories
 {
+    [DatabaseTestBehavior(DatabaseBehavior.NewDbFileAndSchemaPerTest)]
     [TestFixture]
     public class RelationRepositoryTest : BaseDatabaseFactoryTest
     {
         [SetUp]
         public override void Initialize()
-        {           
+        {
             base.Initialize();
 
             CreateTestData();
         }
 
-        [Test]
-        public void Can_Instantiate_Repository()
+        private RelationRepository CreateRepository(IDatabaseUnitOfWork unitOfWork, out RelationTypeRepository relationTypeRepository)
         {
-            // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
-            var unitOfWork = provider.GetUnitOfWork();
-
-            // Act
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
-
-            // Assert
-            Assert.That(repository, Is.Not.Null);
+            relationTypeRepository = new RelationTypeRepository(unitOfWork, CacheHelper.CreateDisabledCacheHelper(), Mock.Of<ILogger>(), SqlSyntax);
+            var repository = new RelationRepository(unitOfWork, CacheHelper.CreateDisabledCacheHelper(), Mock.Of<ILogger>(), SqlSyntax, relationTypeRepository);
+            return repository;
         }
 
         [Test]
         public void Can_Perform_Add_On_RelationRepository()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
 
-            // Act
-            var relationType = repositoryType.Get(1);
-            var relation = new Relation(1047, 1048, relationType);
-            repository.AddOrUpdate(relation);
-            unitOfWork.Commit();
+                // Act
+                var relationType = repositoryType.Get(1);
+                var relation = new Relation(NodeDto.NodeIdSeed + 2, NodeDto.NodeIdSeed + 3, relationType);
+                repository.AddOrUpdate(relation);
+                unitOfWork.Commit();
 
-            // Assert
-            Assert.That(relation, Is.Not.Null);
-            Assert.That(relation.HasIdentity, Is.True);
+                // Assert
+                Assert.That(relation, Is.Not.Null);
+                Assert.That(relation.HasIdentity, Is.True);
+            }
         }
 
         [Test]
         public void Can_Perform_Update_On_RelationRepository()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
 
-            // Act
-            var relation = repository.Get(1);
-            relation.Comment = "This relation has been updated";
-            repository.AddOrUpdate(relation);
-            unitOfWork.Commit();
+                // Act
+                var relation = repository.Get(1);
+                relation.Comment = "This relation has been updated";
+                repository.AddOrUpdate(relation);
+                unitOfWork.Commit();
 
-            var relationUpdated = repository.Get(1);
+                var relationUpdated = repository.Get(1);
 
-            // Assert
-            Assert.That(relationUpdated, Is.Not.Null);
-            Assert.That(relationUpdated.Comment, Is.EqualTo("This relation has been updated"));
-            Assert.AreNotEqual(relationUpdated.UpdateDate, relation.UpdateDate);
+                // Assert
+                Assert.That(relationUpdated, Is.Not.Null);
+                Assert.That(relationUpdated.Comment, Is.EqualTo("This relation has been updated"));
+                Assert.AreNotEqual(relationUpdated.UpdateDate, relation.UpdateDate);
+            }
         }
 
         [Test]
         public void Can_Perform_Delete_On_RelationRepository()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
 
-            // Act
-            var relation = repository.Get(2);
-            repository.Delete(relation);
-            unitOfWork.Commit();
+                // Act
+                var relation = repository.Get(2);
+                repository.Delete(relation);
+                unitOfWork.Commit();
 
-            var exists = repository.Exists(2);
+                var exists = repository.Exists(2);
 
-            // Assert
-            Assert.That(exists, Is.False);
+                // Assert
+                Assert.That(exists, Is.False);
+            }
         }
 
         [Test]
         public void Can_Perform_Get_On_RelationRepository()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
 
-            // Act
-            var relation = repository.Get(1);
+                // Act
+                var relation = repository.Get(1);
 
-            // Assert
-            Assert.That(relation, Is.Not.Null);
-            Assert.That(relation.HasIdentity, Is.True);
-            Assert.That(relation.ChildId, Is.EqualTo(1047));
-            Assert.That(relation.ParentId, Is.EqualTo(1046));
-            Assert.That(relation.RelationType.Alias, Is.EqualTo("relateContentOnCopy"));
+                // Assert
+                Assert.That(relation, Is.Not.Null);
+                Assert.That(relation.HasIdentity, Is.True);
+                Assert.That(relation.ChildId, Is.EqualTo(NodeDto.NodeIdSeed + 2));
+                Assert.That(relation.ParentId, Is.EqualTo(NodeDto.NodeIdSeed + 1));
+                Assert.That(relation.RelationType.Alias, Is.EqualTo("relateContentOnCopy"));
+            }
         }
 
         [Test]
         public void Can_Perform_GetAll_On_RelationRepository()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
 
-            // Act
-            var relations = repository.GetAll();
+                // Act
+                var relations = repository.GetAll();
 
-            // Assert
-            Assert.That(relations, Is.Not.Null);
-            Assert.That(relations.Any(), Is.True);
-            Assert.That(relations.Any(x => x == null), Is.False);
-            Assert.That(relations.Count(), Is.EqualTo(2));
+                // Assert
+                Assert.That(relations, Is.Not.Null);
+                Assert.That(relations.Any(), Is.True);
+                Assert.That(relations.Any(x => x == null), Is.False);
+                Assert.That(relations.Count(), Is.EqualTo(2));
+            }
         }
 
         [Test]
         public void Can_Perform_GetAll_With_Params_On_RelationRepository()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
 
-            // Act
-            var relations = repository.GetAll(1, 2);
+                // Act
+                var relations = repository.GetAll(1, 2);
 
-            // Assert
-            Assert.That(relations, Is.Not.Null);
-            Assert.That(relations.Any(), Is.True);
-            Assert.That(relations.Any(x => x == null), Is.False);
-            Assert.That(relations.Count(), Is.EqualTo(2));
+                // Assert
+                Assert.That(relations, Is.Not.Null);
+                Assert.That(relations.Any(), Is.True);
+                Assert.That(relations.Any(x => x == null), Is.False);
+                Assert.That(relations.Count(), Is.EqualTo(2));
+            }
         }
 
         [Test]
         public void Can_Perform_Exists_On_RelationRepository()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
 
-            // Act
-            var exists = repository.Exists(2);
-            var doesntExist = repository.Exists(5);
+                // Act
+                var exists = repository.Exists(2);
+                var doesntExist = repository.Exists(5);
 
-            // Assert
-            Assert.That(exists, Is.True);
-            Assert.That(doesntExist, Is.False);
+                // Assert
+                Assert.That(exists, Is.True);
+                Assert.That(doesntExist, Is.False);
+            }
         }
 
         [Test]
         public void Can_Perform_Count_On_RelationRepository()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
 
-            // Act
-            var query = Query<Relation>.Builder.Where(x => x.ParentId == 1046);
-            int count = repository.Count(query);
+                // Act
+                var query = Query<IRelation>.Builder.Where(x => x.ParentId == NodeDto.NodeIdSeed + 1);
+                int count = repository.Count(query);
 
-            // Assert
-            Assert.That(count, Is.EqualTo(2));
+                // Assert
+                Assert.That(count, Is.EqualTo(2));
+            }
         }
 
         [Test]
         public void Can_Perform_GetByQuery_On_RelationRepository()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
+                
+                // Act
+                var query = Query<IRelation>.Builder.Where(x => x.RelationTypeId == RelationTypeDto.NodeIdSeed);
+                var relations = repository.GetByQuery(query);
 
-            // Act
-            var query = Query<Relation>.Builder.Where(x => x.RelationTypeId == 2);
-            var relations = repository.GetByQuery(query);
-
-            // Assert
-            Assert.That(relations, Is.Not.Null);
-            Assert.That(relations.Any(), Is.True);
-            Assert.That(relations.Any(x => x == null), Is.False);
-            Assert.That(relations.Count(), Is.EqualTo(2));
+                // Assert
+                Assert.That(relations, Is.Not.Null);
+                Assert.That(relations.Any(), Is.True);
+                Assert.That(relations.Any(x => x == null), Is.False);
+                Assert.That(relations.Count(), Is.EqualTo(2));
+            }
         }
 
         [Test]
         public void Can_Delete_Content_And_Verify_Relation_Is_Removed()
         {
             // Arrange
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var repositoryType = new RelationTypeRepository(unitOfWork);
-            var repository = new RelationRepository(unitOfWork, NullCacheProvider.Current, repositoryType);
+            RelationTypeRepository repositoryType;
+            using (var repository = CreateRepository(unitOfWork, out repositoryType))
+            {
 
-            var content = ServiceContext.ContentService.GetById(1047);
-            ServiceContext.ContentService.Delete(content, 0);
+                var content = ServiceContext.ContentService.GetById(NodeDto.NodeIdSeed + 2);
+                ServiceContext.ContentService.Delete(content, 0);
 
-            // Act
-            var shouldntExist = repository.Exists(1);
-            var shouldExist = repository.Exists(2);
+                // Act
+                var shouldntExist = repository.Exists(1);
+                var shouldExist = repository.Exists(2);
 
-            // Assert
-            Assert.That(shouldntExist, Is.False);
-            Assert.That(shouldExist, Is.True);
+                // Assert
+                Assert.That(shouldntExist, Is.False);
+                Assert.That(shouldExist, Is.True);
+            }
         }
 
         [TearDown]
@@ -248,28 +265,28 @@ namespace Umbraco.Tests.Persistence.Repositories
             var relateContent = new RelationType(new Guid(Constants.ObjectTypes.Document), new Guid("C66BA18E-EAF3-4CFF-8A22-41B16D66A972"), "relateContentOnCopy") { IsBidirectional = true, Name = "Relate Content on Copy" };
             var relateContentType = new RelationType(new Guid(Constants.ObjectTypes.DocumentType), new Guid("A2CB7800-F571-4787-9638-BC48539A0EFB"), "relateContentTypeOnCopy") { IsBidirectional = true, Name = "Relate ContentType on Copy" };
 
-            var provider = new PetaPocoUnitOfWorkProvider();
+            var provider = new PetaPocoUnitOfWorkProvider(Logger);
             var unitOfWork = provider.GetUnitOfWork();
-            var relationTypeRepository = new RelationTypeRepository(unitOfWork);
-            var relationRepository = new RelationRepository(unitOfWork, NullCacheProvider.Current, relationTypeRepository);
+            var relationTypeRepository = new RelationTypeRepository(unitOfWork, CacheHelper.CreateDisabledCacheHelper(), Mock.Of<ILogger>(), SqlSyntax);
+            var relationRepository = new RelationRepository(unitOfWork, CacheHelper.CreateDisabledCacheHelper(), Mock.Of<ILogger>(), SqlSyntax, relationTypeRepository);
 
             relationTypeRepository.AddOrUpdate(relateContent);
             relationTypeRepository.AddOrUpdate(relateContentType);
             unitOfWork.Commit();
 
-            //Create and Save ContentType "umbTextpage" -> 1045
+            //Create and Save ContentType "umbTextpage" -> (NodeDto.NodeIdSeed)
             ContentType contentType = MockedContentTypes.CreateSimpleContentType("umbTextpage", "Textpage");
             ServiceContext.ContentTypeService.Save(contentType);
 
-            //Create and Save Content "Homepage" based on "umbTextpage" -> 1046
+            //Create and Save Content "Homepage" based on "umbTextpage" -> (NodeDto.NodeIdSeed + 1)
             Content textpage = MockedContent.CreateSimpleContent(contentType);
             ServiceContext.ContentService.Save(textpage, 0);
 
-            //Create and Save Content "Text Page 1" based on "umbTextpage" -> 1047
+            //Create and Save Content "Text Page 1" based on "umbTextpage" -> (NodeDto.NodeIdSeed + 2)
             Content subpage = MockedContent.CreateSimpleContent(contentType, "Text Page 1", textpage.Id);
             ServiceContext.ContentService.Save(subpage, 0);
 
-            //Create and Save Content "Text Page 1" based on "umbTextpage" -> 1048
+            //Create and Save Content "Text Page 1" based on "umbTextpage" -> (NodeDto.NodeIdSeed + 3)
             Content subpage2 = MockedContent.CreateSimpleContent(contentType, "Text Page 2", textpage.Id);
             ServiceContext.ContentService.Save(subpage2, 0);
 

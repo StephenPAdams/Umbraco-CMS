@@ -10,12 +10,15 @@ using System.Web.UI;
 using System.Web.UI.WebControls;
 using System.Web.UI.HtmlControls;
 using umbraco.cms.presentation.Trees;
+using Umbraco.Core;
+using Umbraco.Web.Trees;
 
 namespace umbraco.settings
 {
 	/// <summary>
 	/// Summary description for editLanguage.
 	/// </summary>
+    [WebformsPageTreeAuthorize(Constants.Trees.Languages)]
 	public partial class editLanguage : BasePages.UmbracoEnsuredPage
 	{
 	    public editLanguage()
@@ -40,7 +43,7 @@ namespace umbraco.settings
 				updateCultureList();
 
 				ClientTools
-					.SetActiveTreeType(TreeDefinitionCollection.Instance.FindTree<loadLanguages>().Tree.Alias)
+					.SetActiveTreeType(Constants.Trees.Languages)
 					.SyncTree(helper.Request("id"), false);
 			}
 			
@@ -65,7 +68,7 @@ namespace umbraco.settings
             }
         }
 
-		private void save_click(object sender, System.Web.UI.ImageClickEventArgs e) 
+		private void save_click(object sender, EventArgs e) 
 		{
 			currentLanguage.CultureAlias = Cultures.SelectedValue;
 		    currentLanguage.Save();
@@ -78,14 +81,14 @@ namespace umbraco.settings
 		override protected void OnInit(EventArgs e)
 		{
 			Panel1.hasMenu = true;
-			ImageButton save = Panel1.Menu.NewImageButton();
-			save.ImageUrl =  UmbracoPath + "/images/editor/save.gif";
-			save.Click += new System.Web.UI.ImageClickEventHandler(save_click);
-			save.AlternateText = ui.Text("save");
+			var save = Panel1.Menu.NewButton();
+			save.Click += save_click;
+			save.ToolTip = ui.Text("save");
+            save.Text = ui.Text("save");
 		    save.ID = "save";
+            save.ButtonType = uicontrols.MenuButtonType.Primary;
 	
 			Panel1.Text = ui.Text("language", "editLanguage");
-
 
 			InitializeComponent();
 			base.OnInit(e);

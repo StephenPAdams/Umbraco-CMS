@@ -16,6 +16,24 @@ namespace Umbraco.Core.Services
         //Remove Text (in translation)
 
         /// <summary>
+        /// Adds or updates a translation for a dictionary item and language
+        /// </summary>
+        /// <param name="item"></param>
+        /// <param name="language"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        void AddOrUpdateDictionaryValue(IDictionaryItem item, ILanguage language, string value);
+
+        /// <summary>
+        /// Creates and saves a new dictionary item and assigns a value to all languages if defaultValue is specified.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="parentId"></param>
+        /// <param name="defaultValue"></param>
+        /// <returns></returns>
+        IDictionaryItem CreateDictionaryItemWithIdentity(string key, Guid? parentId, string defaultValue = null);
+
+        /// <summary>
         /// Gets a <see cref="IDictionaryItem"/> by its <see cref="Int32"/> id
         /// </summary>
         /// <param name="id">Id of the <see cref="IDictionaryItem"/></param>
@@ -42,6 +60,13 @@ namespace Umbraco.Core.Services
         /// <param name="parentId">Id of the parent</param>
         /// <returns>An enumerable list of <see cref="IDictionaryItem"/> objects</returns>
         IEnumerable<IDictionaryItem> GetDictionaryItemChildren(Guid parentId);
+
+        /// <summary>
+        /// Gets a list of descendants for a <see cref="IDictionaryItem"/>
+        /// </summary>
+        /// <param name="parentId">Id of the parent, null will return all dictionary items</param>
+        /// <returns>An enumerable list of <see cref="IDictionaryItem"/> objects</returns>
+        IEnumerable<IDictionaryItem> GetDictionaryItemDescendants(Guid? parentId);
 
         /// <summary>
         /// Gets the root/top <see cref="IDictionaryItem"/> objects
@@ -81,9 +106,16 @@ namespace Umbraco.Core.Services
         /// <summary>
         /// Gets a <see cref="ILanguage"/> by its culture code
         /// </summary>
-        /// <param name="culture">Culture Code</param>
+        /// <param name="cultureName">Culture Code - also refered to as the Friendly name</param>
         /// <returns><see cref="ILanguage"/></returns>
-        ILanguage GetLanguageByCultureCode(string culture);
+        ILanguage GetLanguageByCultureCode(string cultureName);
+
+        /// <summary>
+        /// Gets a <see cref="Language"/> by its iso code
+        /// </summary>
+        /// <param name="isoCode">Iso Code of the language (ie. en-US)</param>
+        /// <returns><see cref="Language"/></returns>
+        ILanguage GetLanguageByIsoCode(string isoCode);
 
         /// <summary>
         /// Gets all available languages

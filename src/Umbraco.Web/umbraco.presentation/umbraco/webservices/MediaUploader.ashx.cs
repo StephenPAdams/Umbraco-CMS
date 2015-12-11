@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.IO;
 using System.Linq;
 using System.Web;
 using System.Web.Configuration;
@@ -9,15 +10,18 @@ using System.Web.Security;
 using System.Web.UI;
 using System.Xml;
 using System.Xml.Serialization;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.Logging;
 using umbraco.BasePages;
 using umbraco.BusinessLogic;
 using umbraco.businesslogic.Exceptions;
 using umbraco.cms.businesslogic.media;
 using Umbraco.Core;
+using Umbraco.Core.Security;
 
 namespace umbraco.presentation.umbraco.webservices
 {
+    [Obsolete("This should no longer be used, use the WebApi methods to upload media")]
     public class MediaUploader : IHttpHandler
     {
         protected User AuthenticatedUser { get; set; }
@@ -153,32 +157,43 @@ namespace umbraco.presentation.umbraco.webservices
                         // get the current file
                         var uploadFile = context.Request.Files[j];
 
-                        // if there was a file uploded
-                        if (uploadFile.ContentLength > 0)
+                        //Are we allowed to upload this?
+                        var ext = uploadFile.FileName.Substring(uploadFile.FileName.LastIndexOf('.') + 1).ToLower();
+                        if (UmbracoConfig.For.UmbracoSettings().Content.DisallowedUploadFiles.Contains(ext))
                         {
-                            // Ensure we get the filename without the path in IE in intranet mode 
-                            // http://stackoverflow.com/questions/382464/httppostedfile-filename-different-from-ie
-                            var fileName = uploadFile.FileName;
-                            if(fileName.LastIndexOf(@"\") > 0) 
-                                fileName = fileName.Substring(fileName.LastIndexOf(@"\") + 1);
+                            LogHelper.Warn<MediaUploader>("Cannot upload file " + uploadFile.FileName + ", it is not approved in `disallowedUploadFiles` in ~/config/UmbracoSettings.config");
+                            continue;
+                        }
 
-                            fileName = Umbraco.Core.IO.IOHelper.SafeFileName(fileName);
-
-                            var postedMediaFile = new PostedMediaFile
+                        using (var inputStream = uploadFile.InputStream)
+                        {
+                            // if there was a file uploded
+                            if (uploadFile.ContentLength > 0)
                             {
-                                FileName = fileName,
-                                DisplayName = context.Request["name"],
-                                ContentType = uploadFile.ContentType,
-                                ContentLength = uploadFile.ContentLength,
-                                InputStream = uploadFile.InputStream,
-                                ReplaceExisting = replaceExisting
-                            };
+                                // Ensure we get the filename without the path in IE in intranet mode 
+                                // http://stackoverflow.com/questions/382464/httppostedfile-filename-different-from-ie
+                                var fileName = uploadFile.FileName;
+                                if (fileName.LastIndexOf(@"\") > 0)
+                                    fileName = fileName.Substring(fileName.LastIndexOf(@"\") + 1);
 
-                            // Get concrete MediaFactory
-                            var factory = MediaFactory.GetMediaFactory(parentNodeId, postedMediaFile, AuthenticatedUser);
+                                fileName = Umbraco.Core.IO.IOHelper.SafeFileName(fileName);
 
-                            // Handle media Item
-                            var media = factory.HandleMedia(parentNodeId, postedMediaFile, AuthenticatedUser);
+                                var postedMediaFile = new PostedMediaFile
+                                {
+                                    FileName = fileName,
+                                    DisplayName = context.Request["name"],
+                                    ContentType = uploadFile.ContentType,
+                                    ContentLength = uploadFile.ContentLength,
+                                    InputStream = inputStream,
+                                    ReplaceExisting = replaceExisting
+                                };
+
+                                // Get concrete MediaFactory
+                                var factory = MediaFactory.GetMediaFactory(parentNodeId, postedMediaFile, AuthenticatedUser);
+
+                                // Handle media Item
+                                var media = factory.HandleMedia(parentNodeId, postedMediaFile, AuthenticatedUser);
+                            }
                         }
                     }
 
@@ -219,7 +234,7 @@ namespace umbraco.presentation.umbraco.webservices
 
             if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
             {
-                var mp = Membership.Providers[UmbracoSettings.DefaultBackofficeProvider];
+                var mp = MembershipProviderExtensions.GetUsersMembershipProvider();
                 if (mp != null && mp.ValidateUser(username, password))
                 {
                     var user = new User(username);
@@ -243,10 +258,32 @@ namespace umbraco.presentation.umbraco.webservices
             else
             {
                 var usr = User.GetCurrent();
+                
                 if (BasePage.ValidateUserContextID(BasePage.umbracoUserContextID) && usr != null)
                 {
-                    isValid = true;
-                    AuthenticatedUser = usr;    
+                    //The user is valid based on their cookies, but is the request valid? We need to validate
+                    // against CSRF here. We'll do this by ensuring that the request contains a token which will
+                    // be equal to the decrypted version of the current user's user context id.
+                    var token = context.Request["__reqver"];
+                    if (token.IsNullOrWhiteSpace() == false)
+                    {
+                        //try decrypting it
+                        try
+                        {
+                            var decrypted = token.DecryptWithMachineKey();
+                            //now check if it matches
+                            if (decrypted == BasePage.umbracoUserContextID)
+                            {
+                                isValid = true;
+                                AuthenticatedUser = usr;
+                            }
+                        }
+                        catch
+                        {
+                           //couldn't decrypt, so it's invalid
+                        }
+                        
+                    }
                 }
             }
 

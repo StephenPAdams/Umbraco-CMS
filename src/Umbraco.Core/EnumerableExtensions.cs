@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
+using Umbraco.Core.Logging;
 
 namespace Umbraco.Core
 {
@@ -13,16 +15,15 @@ namespace Umbraco.Core
     {
         public static IEnumerable<IEnumerable<T>> InGroupsOf<T>(this IEnumerable<T> source, int groupSize)
         {
-            var i = 0;
-            var length = source.Count();
+            if (source == null)
+                throw new ArgumentNullException("source");
+            if (groupSize <= 0)
+                throw new ArgumentException("Must be greater than zero.", "groupSize");
 
-            while ((i * groupSize) < length)
-            {
-                yield return source.Skip(i * groupSize).Take(groupSize);
-                i++;
-            }
+            return source
+                .Select((x, i) => Tuple.Create(i / groupSize, x))
+                .GroupBy(t => t.Item1, t => t.Item2);
         }
-
 
         /// <summary>The distinct by.</summary>
         /// <param name="source">The source.</param>
@@ -96,23 +97,14 @@ namespace Umbraco.Core
         }
 
         /// <summary>The flatten list.</summary>
-        /// <param name="items">The items.</param>
-        /// <param name="selectChild">The select child.</param>
-        /// <typeparam name="TItem">Item type</typeparam>
+        /// <param name="e">The items.</param>
+        /// <param name="f">The select child.</param>
+        /// <typeparam name="T">Item type</typeparam>
         /// <returns>list of TItem</returns>
-        [SuppressMessage("Microsoft.Design", "CA1006:DoNotNestGenericTypesInMemberSignatures", Justification = "By design")]
-        public static IEnumerable<TItem> FlattenList<TItem>(this IEnumerable<TItem> items, Func<TItem, IEnumerable<TItem>> selectChild)
+        [Obsolete("Do not use, use SelectRecursive instead which has far less potential of re-iterating an iterator which may cause significantly more SQL queries")]
+        public static IEnumerable<T> FlattenList<T>(this IEnumerable<T> e, Func<T, IEnumerable<T>> f)
         {
-            IEnumerable<TItem> children = items != null && items.Any()
-                                              ? items.SelectMany(selectChild).FlattenList(selectChild)
-                                              : Enumerable.Empty<TItem>();
-
-            if (items != null)
-            {
-                return items.Concat(children);
-            }
-
-            return null;
+            return e.SelectMany(c => f(c).FlattenList(f)).Concat(e);
         }
 
         /// <summary>
@@ -124,13 +116,7 @@ namespace Umbraco.Core
         /// <returns></returns>
         public static bool ContainsAll<TSource>(this IEnumerable<TSource> source, IEnumerable<TSource> other)
         {
-            var matches = true;
-            foreach (var i in other)
-            {
-                matches = source.Contains(i);
-                if (!matches) break;
-            }
-            return matches;
+            return other.Except(source).Any() == false;
         }
 
         /// <summary>
@@ -142,7 +128,7 @@ namespace Umbraco.Core
         /// <returns></returns>
         public static bool ContainsAny<TSource>(this IEnumerable<TSource> source, IEnumerable<TSource> other)
         {
-            return other.Any(i => source.Contains(i));
+            return other.Any(source.Contains);
         }
 
         /// <summary>
@@ -234,7 +220,7 @@ namespace Umbraco.Core
             return sequence.Select(
                 x =>
                 {
-                    if (typeof(TActual).IsAssignableFrom(x.GetType()))
+                    if (x is TActual)
                     {
                         var casted = x as TActual;
                         projection.Invoke(casted);
@@ -243,27 +229,77 @@ namespace Umbraco.Core
                 });
         }
 
-        ///<summary>Finds the index of the first item matching an expression in an enumerable.</summary>
-        ///<param name="items">The enumerable to search.</param>
-        ///<param name="predicate">The expression to test the items against.</param>
-        ///<returns>The index of the first matching item, or -1 if no items match.</returns>
+        /// <summary>
+        /// Finds the index of the first item matching an expression in an enumerable.
+        /// </summary>
+        /// <typeparam name="T">The type of the enumerated objects.</typeparam>
+        /// <param name="items">The enumerable to search.</param>
+        /// <param name="predicate">The expression to test the items against.</param>
+        /// <returns>The index of the first matching item, or -1.</returns>
         public static int FindIndex<T>(this IEnumerable<T> items, Func<T, bool> predicate)
+        {
+            return FindIndex(items, 0, predicate);
+        }
+
+        /// <summary>
+        /// Finds the index of the first item matching an expression in an enumerable.
+        /// </summary>
+        /// <typeparam name="T">The type of the enumerated objects.</typeparam>
+        /// <param name="items">The enumerable to search.</param>
+        /// <param name="startIndex">The index to start at.</param>
+        /// <param name="predicate">The expression to test the items against.</param>
+        /// <returns>The index of the first matching item, or -1.</returns>
+        public static int FindIndex<T>(this IEnumerable<T> items, int startIndex, Func<T, bool> predicate)
         {
             if (items == null) throw new ArgumentNullException("items");
             if (predicate == null) throw new ArgumentNullException("predicate");
+            if (startIndex < 0) throw new ArgumentOutOfRangeException("startIndex");
 
-            var retVal = 0;
+            var index = startIndex;
+            if (index > 0)
+                items = items.Skip(index);
+
             foreach (var item in items)
             {
-                if (predicate(item)) return retVal;
-                retVal++;
+                if (predicate(item)) return index;
+                index++;
             }
+
             return -1;
         }
+
         ///<summary>Finds the index of the first occurence of an item in an enumerable.</summary>
         ///<param name="items">The enumerable to search.</param>
         ///<param name="item">The item to find.</param>
         ///<returns>The index of the first matching item, or -1 if the item was not found.</returns>
-        public static int IndexOf<T>(this IEnumerable<T> items, T item) { return items.FindIndex(i => EqualityComparer<T>.Default.Equals(item, i)); }
+        public static int IndexOf<T>(this IEnumerable<T> items, T item)
+        {
+            return items.FindIndex(i => EqualityComparer<T>.Default.Equals(item, i));
+        }
+
+        /// <summary>
+        /// Determines if 2 lists have equal elements within them regardless of how they are sorted
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="source"></param>
+        /// <param name="other"></param>
+        /// <returns></returns>
+        /// <remarks>
+        /// The logic for this is taken from:
+        /// http://stackoverflow.com/questions/4576723/test-whether-two-ienumerablet-have-the-same-values-with-the-same-frequencies
+        /// 
+        /// There's a few answers, this one seems the best for it's simplicity and based on the comment of Eamon
+        /// </remarks>
+        public static bool UnsortedSequenceEqual<T>(this IEnumerable<T> source, IEnumerable<T> other)
+        {
+            if (source == null && other == null) return true;
+            if (source == null || other == null) return false;
+
+            var list1Groups = source.ToLookup(i => i);
+            var list2Groups = other.ToLookup(i => i);
+            return list1Groups.Count == list2Groups.Count
+               && list1Groups.All(g => g.Count() == list2Groups[g.Key].Count());
+        }
+
     }
 }

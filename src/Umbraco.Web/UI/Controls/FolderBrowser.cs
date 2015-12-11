@@ -4,17 +4,15 @@ using System.Text;
 using System.Web.UI;
 using System.Web.UI.WebControls;
 using ClientDependency.Core;
+using Umbraco.Core;
+using Umbraco.Web.UI.Bundles;
 using umbraco.BasePages;
-using umbraco.IO;
+using Umbraco.Core.IO;
 
 namespace Umbraco.Web.UI.Controls
 {
     [ClientDependency(ClientDependencyType.Css, "ContextMenu/Css/jquery.contextMenu.css", "UmbracoClient")]
-    [ClientDependency(ClientDependencyType.Css, "FolderBrowser/Css/folderbrowser.css", "UmbracoClient")]
-    [ClientDependency(ClientDependencyType.Javascript, "ui/jquery.js", "UmbracoClient", Priority = 1)]
-    [ClientDependency(ClientDependencyType.Javascript, "ui/base2.js", "UmbracoClient", Priority = 1)]
-    [ClientDependency(ClientDependencyType.Javascript, "ui/knockout.js", "UmbracoClient", Priority = 3)]
-    [ClientDependency(ClientDependencyType.Javascript, "ui/knockout.mapping.js", "UmbracoClient", Priority = 4)]
+    [ClientDependency(ClientDependencyType.Css, "FolderBrowser/Css/folderbrowser.css", "UmbracoClient")]    
     [ClientDependency(ClientDependencyType.Javascript, "ContextMenu/Js/jquery.contextMenu.js", "UmbracoClient", Priority = 5)]
     [ClientDependency(ClientDependencyType.Javascript, "FileUploader/js/jquery.fileUploader.js", "UmbracoClient", Priority = 6)]
     [ClientDependency(ClientDependencyType.Javascript, "FolderBrowser/js/folderbrowser.js", "UmbracoClient", Priority = 10)]
@@ -68,6 +66,10 @@ namespace Umbraco.Web.UI.Controls
         /// </summary>
         protected override void CreateChildControls()
         {
+            //Ensure the bundles are added
+            Controls.Add(new JsApplicationLib());
+            Controls.Add(new JsJQueryCore());
+
             // Create the panel surround
             Panel = new Panel
             {
@@ -121,7 +123,7 @@ namespace Umbraco.Web.UI.Controls
                       "</div>");
 
             // Create the filter input
-            sb.Append("<div class='filter'>Filter: <input type='text' data-bind=\"value: filterTerm, valueUpdate: 'afterkeydown'\" id='filterTerm'/></div>");
+            sb.Append("<div class='filter'><input type='text' placeholder='filter...' data-bind=\"value: filterTerm, valueUpdate: 'afterkeydown'\" id='filterTerm'/></div>");
 
             // Create throbber to display whilst loading items
             sb.Append("<img src='images/throbber.gif' alt='' class='throbber' data-bind=\"visible: filtered().length == 0\" />");
@@ -137,10 +139,11 @@ namespace Umbraco.Web.UI.Controls
 
             Page.ClientScript.RegisterStartupScript(typeof(FolderBrowser),
                 "RegisterFolderBrowsers",
-                string.Format("$(function () {{ $(\".umbFolderBrowser\").folderBrowser({{ umbracoPath : '{0}', basePath : '{1}' }}); " +
+                string.Format("$(function () {{ $(\".umbFolderBrowser\").folderBrowser({{ umbracoPath : '{0}', basePath : '{1}', reqver : '{2}' }}); " +
                  "$(\".umbFolderBrowser #filterTerm\").keypress(function(event) {{ return event.keyCode != 13; }});}});",
                 IOHelper.ResolveUrl(SystemDirectories.Umbraco),
-                IOHelper.ResolveUrl(SystemDirectories.Base)),
+                IOHelper.ResolveUrl(SystemDirectories.Base),
+                UmbracoEnsuredPage.umbracoUserContextID.EncryptWithMachineKey() ),
                 true);
         }
 

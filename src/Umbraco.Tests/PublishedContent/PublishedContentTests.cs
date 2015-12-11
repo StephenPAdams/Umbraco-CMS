@@ -1,10 +1,15 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Web;
 using NUnit.Framework;
 using Umbraco.Core;
 using Umbraco.Core.Models;
+using Umbraco.Core.Models.PublishedContent;
+using Umbraco.Core.PropertyEditors;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Web;
+using Umbraco.Web.Models;
 
 namespace Umbraco.Tests.PublishedContent
 {
@@ -14,12 +19,57 @@ namespace Umbraco.Tests.PublishedContent
 	[TestFixture]
     public class PublishedContentTests : PublishedContentTestBase
 	{
-        protected override DatabaseBehavior DatabaseTestBehavior
+        private PluginManager _pluginManager;
+
+        public override void Initialize()
         {
-            get { return DatabaseBehavior.NoDatabasePerFixture; }
+            // required so we can access property.Value
+            //PropertyValueConvertersResolver.Current = new PropertyValueConvertersResolver();
+
+            base.Initialize();
+
+            // this is so the model factory looks into the test assembly
+            _pluginManager = PluginManager.Current;
+            PluginManager.Current = new PluginManager(new ActivatorServiceProvider(), CacheHelper.RuntimeCache, ProfilingLogger, false)
+            {
+                AssembliesToScan = _pluginManager.AssembliesToScan
+                    .Union(new[] { typeof(PublishedContentTests).Assembly })
+            };
+
+            // need to specify a custom callback for unit tests
+            // AutoPublishedContentTypes generates properties automatically
+            // when they are requested, but we must declare those that we
+            // explicitely want to be here...
+
+            var propertyTypes = new[]
+                {
+                    // AutoPublishedContentType will auto-generate other properties
+                    new PublishedPropertyType("umbracoNaviHide", 0, Constants.PropertyEditors.TrueFalseAlias), 
+                    new PublishedPropertyType("selectedNodes", 0, "?"), 
+                    new PublishedPropertyType("umbracoUrlAlias", 0, "?"), 
+                    new PublishedPropertyType("content", 0, Constants.PropertyEditors.TinyMCEAlias), 
+                    new PublishedPropertyType("testRecursive", 0, "?"), 
+                };
+            var type = new AutoPublishedContentType(0, "anything", propertyTypes);
+            PublishedContentType.GetPublishedContentTypeCallback = (alias) => type;
         }
 
-		protected override string GetXmlContent(int templateId)
+        public override void TearDown()
+        {
+            PluginManager.Current = _pluginManager;
+            ApplicationContext.Current.DisposeIfDisposable();
+            ApplicationContext.Current = null;
+        }
+
+	    protected override void FreezeResolution()
+	    {
+            var types = PluginManager.Current.ResolveTypes<PublishedContentModel>();
+            PublishedContentModelFactoryResolver.Current = new PublishedContentModelFactoryResolver(
+                new PublishedContentModelFactory(types));
+	        base.FreezeResolution();
+	    }
+
+	    protected override string GetXmlContent(int templateId)
 		{
 			return @"<?xml version=""1.0"" encoding=""utf-8""?>
 <!DOCTYPE root[ 
@@ -107,15 +157,17 @@ namespace Umbraco.Tests.PublishedContent
         {
             var doc = GetNode(1173);
 
-            foreach (var d in doc.Children.Where("Visible"))
+            var items = doc.Children.Where("Visible").ToContentSet();
+
+            foreach (var item in items)
             {
-                if (d.Id != 1178)
+                if (item.Id != 1178)
                 {
-                    Assert.IsFalse(d.IsLast());
+                    Assert.IsFalse(item.IsLast());
                 }
                 else
                 {
-                    Assert.IsTrue(d.IsLast());
+                    Assert.IsTrue(item.IsLast());
                 }
             }
         }
@@ -125,15 +177,74 @@ namespace Umbraco.Tests.PublishedContent
         {
             var doc = GetNode(1173);
 
-            foreach (var d in doc.Children.Where(x => x.IsVisible()))
+            var items = doc
+                .Children
+                .Where(x => x.IsVisible())
+                .ToContentSet();
+
+            Assert.AreEqual(3, items.Count());
+
+            foreach (var d in items)
             {
-                if (d.Id != 1178)
+                switch (d.Id)
                 {
-                    Assert.IsFalse(d.IsLast());
+                    case 1174:
+                        Assert.IsTrue(d.IsFirst());
+                        Assert.IsFalse(d.IsLast());
+                        break;
+                    case 1177:
+                        Assert.IsFalse(d.IsFirst());
+                        Assert.IsFalse(d.IsLast());
+                        break;
+                    case 1178:
+                        Assert.IsFalse(d.IsFirst());
+                        Assert.IsTrue(d.IsLast());
+                        break;
+                    default:
+                        Assert.Fail("Invalid id.");
+                        break;
                 }
-                else
+            }
+        }
+
+        [PublishedContentModel("Home")]
+        internal class Home : PublishedContentModel
+        {
+            public Home(IPublishedContent content) 
+                : base(content) 
+            {}
+        }
+
+        [Test]
+        [Ignore("Fails as long as PublishedContentModel is internal.")] // fixme
+        public void Is_Last_From_Where_Filter2()
+        {
+            var doc = GetNode(1173);
+
+            var items = doc.Children
+                .Select(x => x.CreateModel()) // linq, returns IEnumerable<IPublishedContent>
+
+                // only way around this is to make sure every IEnumerable<T> extension
+                // explicitely returns a PublishedContentSet, not an IEnumerable<T>
+
+                .OfType<Home>() // ours, return IEnumerable<Home> (actually a PublishedContentSet<Home>)
+                .Where(x => x.IsVisible()) // so, here it's linq again :-(
+                .ToContentSet() // so, we need that one for the test to pass
+                .ToArray();
+
+            Assert.AreEqual(1, items.Count());
+
+            foreach (var d in items)
+            {
+                switch (d.Id)
                 {
-                    Assert.IsTrue(d.IsLast());
+                    case 1174:
+                        Assert.IsTrue(d.IsFirst());
+                        Assert.IsTrue(d.IsLast());
+                        break;
+                    default:
+                        Assert.Fail("Invalid id.");
+                        break;
                 }
             }
         }
@@ -143,15 +254,17 @@ namespace Umbraco.Tests.PublishedContent
         {
             var doc = GetNode(1173);
 
-            foreach (var d in doc.Children.Take(3))
+            var items = doc.Children.Take(3).ToContentSet();
+
+            foreach (var item in items)
             {
-                if (d.Id != 1178)
+                if (item.Id != 1178)
                 {
-                    Assert.IsFalse(d.IsLast());
+                    Assert.IsFalse(item.IsLast());
                 }
                 else
                 {
-                    Assert.IsTrue(d.IsLast());
+                    Assert.IsTrue(item.IsLast());
                 }
             }
         }
@@ -179,16 +292,19 @@ namespace Umbraco.Tests.PublishedContent
         {
             var doc = GetNode(1173);
 
+            var items = doc.Children
+                .Concat(new[] { GetNode(1175), GetNode(4444) })
+                .ToContentSet();
 
-            foreach (var d in doc.Children.Concat(new[] { GetNode(1175), GetNode(4444) }))
+            foreach (var item in items)
             {
-                if (d.Id != 4444)
+                if (item.Id != 4444)
                 {
-                    Assert.IsFalse(d.IsLast());
+                    Assert.IsFalse(item.IsLast());
                 }
                 else
                 {
-                    Assert.IsTrue(d.IsLast());
+                    Assert.IsTrue(item.IsLast());
                 }
             }
         }
@@ -198,24 +314,12 @@ namespace Umbraco.Tests.PublishedContent
 	    {
             var doc = GetNode(1046);
 
-	        var currentLevel = 0;
-	        var lastSortOrder = 0;
-            var levelChangesAt = new[] { 1046, 1173, 1174 };
+	        var expected = new[] {1046, 1173, 1174, 1177, 1178, 1176, 1175, 4444, 1172};
+	        var exindex = 0;
 
+            // must respect the XPath descendants-or-self axis!
             foreach (var d in doc.DescendantsOrSelf())
-            {
-                if (levelChangesAt.Contains(d.Id))
-                {
-                    Assert.Greater(d.Level, currentLevel);
-                    currentLevel = d.Level;                    
-                }
-                else
-                {
-                    Assert.AreEqual(currentLevel, d.Level);
-                    Assert.Greater(d.SortOrder, lastSortOrder);                    
-                }
-                lastSortOrder = d.SortOrder;
-            }
+                Assert.AreEqual(expected[exindex++], d.Id);
 	    }
 
 	    [Test]
@@ -234,15 +338,15 @@ namespace Umbraco.Tests.PublishedContent
 			var doc = GetNode(1173);
 
 			var propVal = doc.GetPropertyValue("content");
-			Assert.IsTrue(TypeHelper.IsTypeAssignableFrom<IHtmlString>(propVal.GetType()));
+            Assert.IsInstanceOf(typeof(IHtmlString), propVal);
 			Assert.AreEqual("<div>This is some content</div>", propVal.ToString());
 
 			var propVal2 = doc.GetPropertyValue<IHtmlString>("content");
-			Assert.IsTrue(TypeHelper.IsTypeAssignableFrom<IHtmlString>(propVal2.GetType()));
-			Assert.AreEqual("<div>This is some content</div>", propVal2.ToString());
+            Assert.IsInstanceOf(typeof(IHtmlString), propVal2);
+            Assert.AreEqual("<div>This is some content</div>", propVal2.ToString());
 
             var propVal3 = doc.GetPropertyValue("Content");
-            Assert.IsTrue(TypeHelper.IsTypeAssignableFrom<IHtmlString>(propVal3.GetType()));
+            Assert.IsInstanceOf(typeof(IHtmlString), propVal3);
             Assert.AreEqual("<div>This is some content</div>", propVal3.ToString());
 		}
 
@@ -351,6 +455,20 @@ namespace Umbraco.Tests.PublishedContent
 		}
 
 		[Test]
+		public void FirstChild()
+		{
+			var doc = GetNode(1173); // has child nodes
+			Assert.IsNotNull(doc.FirstChild());
+			Assert.IsNotNull(doc.FirstChild(x => true));
+			Assert.IsNotNull(doc.FirstChild<IPublishedContent>());
+
+			doc = GetNode(1175); // does not have child nodes
+			Assert.IsNull(doc.FirstChild());
+			Assert.IsNull(doc.FirstChild(x => true));
+			Assert.IsNull(doc.FirstChild<IPublishedContent>());
+		}
+
+		[Test]
 		public void HasProperty()
 		{
 			var doc = GetNode(1173);
@@ -360,7 +478,6 @@ namespace Umbraco.Tests.PublishedContent
 			Assert.AreEqual(true, (bool)hasProp);
 
 		}
-
 
 		[Test]
 		public void HasValue()
@@ -374,14 +491,12 @@ namespace Umbraco.Tests.PublishedContent
 			Assert.IsFalse(noValue);
 		}
 
-
 		[Test]
 		public void Ancestors_Where_Visible()
 		{
 			var doc = GetNode(1174);
 
 			var whereVisible = doc.Ancestors().Where("Visible");
-
 			Assert.AreEqual(1, whereVisible.Count());
 
 		}
@@ -396,7 +511,6 @@ namespace Umbraco.Tests.PublishedContent
 			Assert.IsTrue(visible.IsVisible());
 		}
 
-	
 		[Test]
 		public void Ancestor_Or_Self()
 		{
@@ -406,8 +520,18 @@ namespace Umbraco.Tests.PublishedContent
 
 			Assert.IsNotNull(result);
 
-			Assert.AreEqual((int)1046, (int)result.Id);
+            // ancestor-or-self has to be self!
+            Assert.AreEqual(1173, result.Id);
 		}
+
+	    [Test]
+	    public void U4_4559()
+	    {
+	        var doc = GetNode(1174);
+	        var result = doc.AncestorOrSelf(1);
+            Assert.IsNotNull(result);
+            Assert.AreEqual(1046, result.Id);
+	    }
 
 		[Test]
 		public void Ancestors_Or_Self()
@@ -524,5 +648,61 @@ namespace Umbraco.Tests.PublishedContent
 
 			Assert.AreEqual((int)1178, (int)result.Id);
 		}
-	}
+
+        [Test]
+        public void DetachedProperty1()
+        {
+            var type = new PublishedPropertyType("detached", Constants.PropertyEditors.IntegerAlias);
+            var prop = PublishedProperty.GetDetached(type.Detached(), "5548");
+            Assert.IsInstanceOf<int>(prop.Value);
+            Assert.AreEqual(5548, prop.Value);
+        }
+
+	    public void CreateDetachedContentSample()
+	    {
+            bool previewing = false;
+            var t = PublishedContentType.Get(PublishedItemType.Content, "detachedSomething");
+            var values = new Dictionary<string, object>();
+            var properties = t.PropertyTypes.Select(x =>
+            {
+                object value;
+                if (values.TryGetValue(x.PropertyTypeAlias, out value) == false) value = null;
+                return PublishedProperty.GetDetached(x.Detached(), value, previewing);
+            });
+            // and if you want some sort of "model" it's up to you really...
+            var c = new DetachedContent(properties);
+        }
+
+	    public void CreatedDetachedContentInConverterSample()
+	    {
+            // the converter args
+	        PublishedPropertyType argPropertyType = null;
+	        object argSource = null;
+	        bool argPreview = false;
+
+	        var pt1 = new PublishedPropertyType("legend", 0, Constants.PropertyEditors.TextboxAlias);
+	        var pt2 = new PublishedPropertyType("image", 0, Constants.PropertyEditors.MediaPickerAlias);
+	        string val1 = "";
+	        int val2 = 0;
+
+            var c = new ImageWithLegendModel(
+                PublishedProperty.GetDetached(pt1.Nested(argPropertyType), val1, argPreview),
+                PublishedProperty.GetDetached(pt2.Nested(argPropertyType), val2, argPreview));
+        }
+
+	    class ImageWithLegendModel
+	    {
+	        private IPublishedProperty _legendProperty;
+	        private IPublishedProperty _imageProperty;
+
+	        public ImageWithLegendModel(IPublishedProperty legendProperty, IPublishedProperty imageProperty)
+	        {
+	            _legendProperty = legendProperty;
+	            _imageProperty = imageProperty;
+	        }
+
+            public string Legend { get { return _legendProperty.GetValue<string>(); } }
+            public IPublishedContent Image { get { return _imageProperty.GetValue<IPublishedContent>(); } }
+        }
+    }
 }

@@ -8,7 +8,7 @@ using System.Web;
 using System.Web.UI.WebControls;
 using Umbraco.Core.IO;
 using Umbraco.Core;
-using umbraco.cms.businesslogic.macro;
+using Umbraco.Core.Models;
 
 namespace Umbraco.Web.UI.Umbraco.Developer.Macros
 {
@@ -29,16 +29,16 @@ namespace Umbraco.Web.UI.Umbraco.Developer.Macros
 		/// <param name="macro"> </param>
 		/// <param name="macroAssemblyValue"></param>
 		/// <param name="macroTypeValue"></param>
-		protected override void PopulateFieldsOnLoad(Macro macro, string macroAssemblyValue, string macroTypeValue)
+		protected override void PopulateFieldsOnLoad(IMacro macro, string macroAssemblyValue, string macroTypeValue)
 		{
 			base.PopulateFieldsOnLoad(macro, macroAssemblyValue, macroTypeValue);
 			//check if the ScriptingFile property contains the MacroPartials path
-			if (macro.ScriptingFile.IsNullOrWhiteSpace() == false &&
-                (macro.ScriptingFile.StartsWith(SystemDirectories.MvcViews + "/MacroPartials/")
-				|| (Regex.IsMatch(macro.ScriptingFile, "~/App_Plugins/.+?/Views/MacroPartials", RegexOptions.Compiled))))
+			if (macro.ScriptPath.IsNullOrWhiteSpace() == false &&
+                (macro.ScriptPath.StartsWith(SystemDirectories.MvcViews + "/MacroPartials/")
+                || (Regex.IsMatch(macro.ScriptPath, "~/App_Plugins/.+?/Views/MacroPartials", RegexOptions.Compiled))))
 			{
 				macroPython.Text = "";
-				SelectedPartialView.Text = macro.ScriptingFile;
+                SelectedPartialView.Text = macro.ScriptPath;
 			}
 		}
 
@@ -50,12 +50,12 @@ namespace Umbraco.Web.UI.Umbraco.Developer.Macros
 		/// <param name="macroCachePeriod"></param>
 		/// <param name="macroAssemblyValue"></param>
 		/// <param name="macroTypeValue"></param>
-		protected override void SetMacroValuesFromPostBack(Macro macro, int macroCachePeriod, string macroAssemblyValue, string macroTypeValue)
+		protected override void SetMacroValuesFromPostBack(IMacro macro, int macroCachePeriod, string macroAssemblyValue, string macroTypeValue)
 		{
 			base.SetMacroValuesFromPostBack(macro, macroCachePeriod, macroAssemblyValue, macroTypeValue);
 			if (!SelectedPartialView.Text.IsNullOrWhiteSpace())
 			{
-				macro.ScriptingFile = SelectedPartialView.Text;
+				macro.ScriptPath = SelectedPartialView.Text;
 			}
 		}
 
@@ -68,21 +68,23 @@ namespace Umbraco.Web.UI.Umbraco.Developer.Macros
 			//get all the partials in the normal /MacroPartials folder
 			var foundMacroPartials = GetPartialViewFiles(partialsDir, partialsDir, SystemDirectories.MvcViews + "/MacroPartials");
 			//now try to find all of them int he App_Plugins/[PackageName]/Views/MacroPartials folder
-			var partialPluginsDir = new DirectoryInfo(IOHelper.MapPath(SystemDirectories.AppPlugins));
-			foreach(var d in partialPluginsDir.GetDirectories())
-			{
-				var viewsFolder = d.GetDirectories("Views");
-				if (viewsFolder.Any())
-				{
-					var macroPartials = viewsFolder.First().GetDirectories("MacroPartials");
-					if (macroPartials.Any())
-					{
-						foundMacroPartials = foundMacroPartials.Concat(
-							GetPartialViewFiles(macroPartials.First().FullName, macroPartials.First().FullName, SystemDirectories.AppPlugins + "/" + d.Name + "/Views/MacroPartials"));
-					}
-				}
-			}
-			
+			var appPluginsFolder = new DirectoryInfo(IOHelper.MapPath(SystemDirectories.AppPlugins));
+		    if (appPluginsFolder.Exists)
+		    {
+                foreach (var d in appPluginsFolder.GetDirectories())
+                {
+                    var viewsFolder = d.GetDirectories("Views");
+                    if (viewsFolder.Any())
+                    {
+                        var macroPartials = viewsFolder.First().GetDirectories("MacroPartials");
+                        if (macroPartials.Any())
+                        {
+                            foundMacroPartials = foundMacroPartials.Concat(
+                                GetPartialViewFiles(macroPartials.First().FullName, macroPartials.First().FullName, SystemDirectories.AppPlugins + "/" + d.Name + "/Views/MacroPartials"));
+                        }
+                    }
+                }    
+		    }
 			
 			
 			PartialViewList.DataSource = foundMacroPartials;
@@ -118,5 +120,27 @@ namespace Umbraco.Web.UI.Umbraco.Developer.Macros
 			return files;
 		}
 
+        /// <summary>
+        /// Binds the drop down list but ensures that the macro param type exists if it doesn't the drop down will be left blank
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+	    protected void MacroPropertiesOnItemDataBound(object sender, RepeaterItemEventArgs e)
+	    {
+            if (e.Item.ItemType == ListItemType.Item || e.Item.ItemType == ListItemType.AlternatingItem)
+            {
+                var propertyTypes = (DropDownList)e.Item.FindControl("macroPropertyType");
+
+                var editors = GetMacroParameterEditors();
+                propertyTypes.DataSource = editors;
+                propertyTypes.DataBind();
+                var macroProp = (IMacroProperty)e.Item.DataItem;
+                if (editors.Any(x => x.Alias == macroProp.EditorAlias))
+                {
+                    propertyTypes.SelectedValue = macroProp.EditorAlias;
+                }    
+            }
+
+	    }
 	}
 }

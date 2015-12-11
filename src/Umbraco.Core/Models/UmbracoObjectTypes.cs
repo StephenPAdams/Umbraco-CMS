@@ -43,7 +43,7 @@ namespace Umbraco.Core.Models
         /// <summary>
         /// Member Type
         /// </summary>
-        [UmbracoObjectTypeAttribute(Constants.ObjectTypes.MemberType)]
+        [UmbracoObjectTypeAttribute(Constants.ObjectTypes.MemberType, typeof(IMemberType))]
         [FriendlyName("Member Type")]
         MemberType,
 
@@ -61,6 +61,7 @@ namespace Umbraco.Core.Models
         [FriendlyName("Member Group")]
         MemberGroup,
 
+        //TODO: What is a 'Content Item' supposed to be???
         /// <summary>
         /// Content Item
         /// </summary>
@@ -99,7 +100,7 @@ namespace Umbraco.Core.Models
         /// <summary>
         /// Member
         /// </summary>
-        [UmbracoObjectTypeAttribute(Constants.ObjectTypes.Member)]
+        [UmbracoObjectTypeAttribute(Constants.ObjectTypes.Member, typeof(IMember))]
         [FriendlyName("Member")]
         Member,
 

@@ -6,11 +6,23 @@ using Umbraco.Core;
 
 namespace Umbraco.Web
 {
-	/// <summary>
+    /// <summary>
 	/// Extension methods for the HttpRequest and HttpRequestBase objects
 	/// </summary>
 	public static class HttpRequestExtensions
 	{
+        /// <summary>
+        /// Extracts the value from the query string and cleans it to prevent xss attacks.
+        /// </summary>
+        /// <param name="request"></param>
+        /// <param name="key"></param>
+        /// <returns></returns>        
+        public static string CleanForXss(this HttpRequest request, string key)
+        {
+            var item = request.GetItemAsString(key);
+            return item.CleanForXss();
+        }
+
 		/// <summary>
 		/// Safely get a request item as string, if the item does not exist, an empty string is returned.
 		/// </summary>
@@ -20,7 +32,7 @@ namespace Umbraco.Web
 		/// <returns></returns>
 		public static string GetItemAsString(this HttpRequest request, string key, string valueIfNotFound = "")
 		{
-			return new HttpRequestWrapper(request).GetItemAsString(key);
+			return new HttpRequestWrapper(request).GetItemAsString(key, valueIfNotFound);
 		}
 
 		/// <summary>
@@ -32,7 +44,7 @@ namespace Umbraco.Web
 		/// <returns></returns>
 		public static string GetItemAsString(this HttpRequestBase request, string key, string valueIfNotFound = "")
 		{
-			var val = HttpContext.Current.Request[key];
+			var val = request[key];
 			return !val.IsNullOrWhiteSpace() ? val : valueIfNotFound;
 		}
 
@@ -45,7 +57,7 @@ namespace Umbraco.Web
 		/// <returns></returns>
 		public static T GetItemAs<T>(this HttpRequestBase request, string key)
 		{
-			var val = HttpContext.Current.Request[key];
+			var val = request[key];
 			var whitespaceCheck = !val.IsNullOrWhiteSpace() ? val : string.Empty;
 			if (whitespaceCheck.IsNullOrWhiteSpace())
 				return (T) typeof (T).GetDefaultValue();

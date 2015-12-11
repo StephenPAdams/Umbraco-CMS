@@ -7,15 +7,17 @@ using System.Web;
 using System.Web.Compilation;
 using System.Web.WebPages;
 using Umbraco.Core;
+using umbraco.MacroEngines.Resources;
 using umbraco.cms.businesslogic.macro;
 using umbraco.interfaces;
-using umbraco.IO;
+using Umbraco.Core.IO;
 
 namespace umbraco.MacroEngines
 {
     public class RazorMacroEngine : IMacroEngine, IMacroEngineResultStatus {
 
         public const string RazorTempDirectory = "~/App_Data/TEMP/Razor/";
+        private const string RazorWebConfig = "~/App_Data/TEMP/Razor/web.config";
 
         public string GetVirtualPathFromPhysicalPath(string physicalPath) {
             string rootpath = HttpContext.Current.Server.MapPath("~/");
@@ -40,6 +42,7 @@ namespace umbraco.MacroEngines
             var relativePath = RazorTempDirectory + fileName;
             var physicalPath = IOHelper.MapPath(relativePath);
             var physicalDirectoryPath = IOHelper.MapPath(RazorTempDirectory);
+            var webconfig = IOHelper.MapPath(RazorWebConfig);
 
             if (skipIfFileExists && File.Exists(physicalPath))
                 return relativePath;
@@ -47,6 +50,16 @@ namespace umbraco.MacroEngines
                 File.Delete(physicalPath);
             if (!Directory.Exists(physicalDirectoryPath))
                 Directory.CreateDirectory(physicalDirectoryPath);
+
+            //Ensure the correct razor web.config is there
+            if (File.Exists(webconfig) == false)
+            {
+                using (var writer = File.CreateText(webconfig))
+                {
+                    writer.Write(Strings.WebConfig);
+                }
+            }
+
             using (var file = new StreamWriter(physicalPath, false, Encoding.UTF8))
             {
                 file.Write(razorSyntax);
@@ -162,6 +175,19 @@ namespace umbraco.MacroEngines
         }
 
         public string Execute(MacroModel macro, INode currentPage) {
+            
+            //if this is executing, we need to ensure the folder exists and that the correct web.config exists on that folder too
+            var absolutePath = IOHelper.MapPath(SystemDirectories.MacroScripts);
+            if (!Directory.Exists(absolutePath))
+                Directory.CreateDirectory(absolutePath);
+            if (!File.Exists(Path.Combine(absolutePath, "web.config")))
+            {
+                using (var writer = File.CreateText(Path.Combine(absolutePath, "web.config")))
+                {
+                    writer.Write(Strings.WebConfig);
+                }
+            }
+            
             try
             {
                 Success = true;

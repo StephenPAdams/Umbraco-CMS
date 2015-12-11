@@ -7,11 +7,59 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Umbraco.Core.Strings;
 
 namespace Umbraco.Core
 {
 	public static class TypeExtensions
 	{
+        /// <summary>
+        /// Tries to return a value based on a property name for an object but ignores case sensitivity
+        /// </summary>
+        /// <param name="type"></param>
+        /// <param name="target"></param>
+        /// <param name="memberName"></param>
+        /// <returns></returns>
+        /// <remarks>
+        /// Currenty this will only work for ProperCase and camelCase properties, see the TODO below to enable complete case insensitivity
+        /// </remarks>
+        internal static Attempt<object> GetMemberIgnoreCase(this Type type, object target, string memberName)
+	    {
+            Func<string, Attempt<object>> getMember =
+                memberAlias =>
+                {
+                    try
+                    {
+                        return Attempt<object>.Succeed(
+                                                   type.InvokeMember(memberAlias,
+                                                                                  System.Reflection.BindingFlags.GetProperty |
+                                                                                  System.Reflection.BindingFlags.Instance |
+                                                                                  System.Reflection.BindingFlags.Public,
+                                                                                  null,
+                                                                                  target,
+                                                                                  null));
+                    }
+                    catch (MissingMethodException ex)
+                    {
+                        return Attempt<object>.Fail(ex);
+                    }
+                };
+
+            //try with the current casing
+            var attempt = getMember(memberName);
+            if (attempt.Success == false)
+            {
+                //if we cannot get with the current alias, try changing it's case
+                attempt = memberName[0].IsUpperCase()
+                    ? getMember(memberName.ToCleanString(CleanStringType.Ascii | CleanStringType.ConvertCase | CleanStringType.CamelCase))
+                    : getMember(memberName.ToCleanString(CleanStringType.Ascii | CleanStringType.ConvertCase | CleanStringType.PascalCase));
+
+                //TODO: If this still fails then we should get a list of properties from the object and then compare - doing the above without listing
+                // all properties will surely be faster than using reflection to get ALL properties first and then query against them.
+            }
+
+            return attempt;
+	    }
 
 		public static object GetDefaultValue(this Type t)
 		{
@@ -65,11 +113,12 @@ namespace Umbraco.Core
 		}
 
 
-		/// <summary>
-		/// Determines whether the specified type is enumerable.
-		/// </summary>
-		/// <param name="type">The type.</param>
-        internal static bool HasParameters(this MethodInfo method, params Type[] parameterTypes)
+	    /// <summary>
+	    /// Determines whether the specified type is enumerable.
+	    /// </summary>
+	    /// <param name="method">The type.</param>
+	    /// <param name="parameterTypes"></param>
+	    internal static bool HasParameters(this MethodInfo method, params Type[] parameterTypes)
         {
             var methodParameters = method.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
 
@@ -82,27 +131,23 @@ namespace Umbraco.Core
 
             return true;
         }
-
-        public static IEnumerable<Type> AllInterfaces(this Type target)
+        
+        public static IEnumerable<Type> GetBaseTypes(this Type type, bool andSelf)
         {
-            foreach (var IF in target.GetInterfaces())
-            {
-                yield return IF;
-                foreach (var childIF in IF.AllInterfaces())
-                {
-                    yield return childIF;
-                }
-            }
+            if (andSelf)
+                yield return type;
+
+            while ((type = type.BaseType) != null)
+                yield return type;
         }
 
         public static IEnumerable<MethodInfo> AllMethods(this Type target)
         {
-            var allTypes = target.AllInterfaces().ToList();
+            //var allTypes = target.AllInterfaces().ToList();
+            var allTypes = target.GetInterfaces().ToList(); // GetInterfaces is ok here
             allTypes.Add(target);
 
-            return from type in allTypes
-                   from method in type.GetMethods()
-                   select method;
+            return allTypes.SelectMany(t => t.GetMethods());
         }
  
 		/// <returns>
@@ -154,7 +199,7 @@ namespace Umbraco.Core
 			{
 				throw new ArgumentNullException("genericType");
 			}
-			if (!genericType.IsGenericType)
+			if (genericType.IsGenericType == false)
 			{
 				throw new ArgumentException("genericType must be a generic type");
 			}
@@ -199,7 +244,6 @@ namespace Umbraco.Core
 				}
 
 			}
-
 
 			return false;
 
@@ -252,6 +296,53 @@ namespace Umbraco.Core
         }
 
         /// <summary>
+        /// Returns all public properties including inherited properties even for interfaces
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        /// <remarks>
+        /// taken from http://stackoverflow.com/questions/358835/getproperties-to-return-all-properties-for-an-interface-inheritance-hierarchy
+        /// </remarks>
+        public static PropertyInfo[] GetPublicProperties(this Type type)
+        {
+            if (type.IsInterface)
+            {
+                var propertyInfos = new List<PropertyInfo>();
+
+                var considered = new List<Type>();
+                var queue = new Queue<Type>();
+                considered.Add(type);
+                queue.Enqueue(type);
+                while (queue.Count > 0)
+                {
+                    var subType = queue.Dequeue();
+                    foreach (var subInterface in subType.GetInterfaces())
+                    {
+                        if (considered.Contains(subInterface)) continue;
+
+                        considered.Add(subInterface);
+                        queue.Enqueue(subInterface);
+                    }
+
+                    var typeProperties = subType.GetProperties(
+                        BindingFlags.FlattenHierarchy
+                        | BindingFlags.Public
+                        | BindingFlags.Instance);
+
+                    var newPropertyInfos = typeProperties
+                        .Where(x => !propertyInfos.Contains(x));
+
+                    propertyInfos.InsertRange(0, newPropertyInfos);
+                }
+
+                return propertyInfos.ToArray();
+            }
+
+            return type.GetProperties(BindingFlags.FlattenHierarchy
+                | BindingFlags.Public | BindingFlags.Instance);
+        }
+
+        /// <summary>
 		/// Determines whether the specified actual type is type.
 		/// </summary>
 		/// <typeparam name="T"></typeparam>
@@ -268,6 +359,11 @@ namespace Umbraco.Core
         {
             return typeof (TBase).IsAssignableFrom(type);
         }
+
+	    public static bool Inherits(this Type type, Type tbase)
+	    {
+	        return tbase.IsAssignableFrom(type);
+	    }
 
         public static bool Implements<TInterface>(this Type type)
         {
@@ -323,7 +419,13 @@ namespace Umbraco.Core
 		/// </example>
 		public static string GetFullNameWithAssembly(this Type type)
 		{
-			return string.Concat(type.FullName, ", ", type.Assembly.GetName().Name);
+		    var assemblyName = type.Assembly.GetName();
+
+			return string.Concat(type.FullName, ", ",
+                assemblyName.FullName.StartsWith("App_Code.") ? "App_Code" : assemblyName.Name);
 		}
-	}
+
+
+
+    }
 }

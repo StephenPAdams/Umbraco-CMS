@@ -10,6 +10,7 @@ using Umbraco.Web.Media.ThumbnailProviders;
 using umbraco.BusinessLogic;
 using umbraco.cms.businesslogic.Tags;
 using Umbraco.Web.BaseRest;
+using Tag = umbraco.cms.businesslogic.Tags.Tag;
 
 namespace Umbraco.Web.WebServices
 {
@@ -31,9 +32,14 @@ namespace Umbraco.Web.WebServices
             var entities = service.GetChildren(parentId, UmbracoObjectTypes.Media);
             foreach (UmbracoEntity entity in entities)
             {
-                var uploadFieldProperty = entity.UmbracoProperties.FirstOrDefault(x => x.DataTypeControlId == new Guid(Constants.PropertyEditors.UploadField));
-
-                var thumbnailUrl = uploadFieldProperty == null ? "" : ThumbnailProvidersResolver.Current.GetThumbnailUrl(uploadFieldProperty.Value);
+                var uploadFieldProperty = entity.AdditionalData
+                    .Select(x => x.Value as UmbracoEntity.EntityProperty)
+                    .Where(x => x != null)
+                    .FirstOrDefault(x => x.PropertyEditorAlias == Constants.PropertyEditors.UploadFieldAlias);
+                    
+                //var uploadFieldProperty = entity.UmbracoProperties.FirstOrDefault(x => x.PropertyEditorAlias == Constants.PropertyEditors.UploadFieldAlias);
+                
+                var thumbnailUrl = uploadFieldProperty == null ? "" : ThumbnailProvidersResolver.Current.GetThumbnailUrl((string)uploadFieldProperty.Value);
 
                 var item = new
                 {

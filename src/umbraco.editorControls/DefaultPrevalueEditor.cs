@@ -8,6 +8,7 @@ using umbraco.DataLayer;
 
 namespace umbraco.editorControls
 {
+    [Obsolete("IDataType and all other references to the legacy property editors are no longer used this will be removed from the codebase in future versions")]
     public class DefaultPrevalueEditor : PlaceHolder, IDataPrevalue
     {
         // UI controls
@@ -28,7 +29,7 @@ namespace umbraco.editorControls
         }
 
         /// <summary>
-        /// The default editor for editing the build-in pre values in umbraco
+        /// The default editor for editing the built-in pre values in umbraco
         /// </summary>
         /// <param name="DataType">The DataType to be parsed</param>
         /// <param name="DisplayTextBox">Whether to use the default text box</param>

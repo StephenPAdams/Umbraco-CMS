@@ -1,72 +1,53 @@
 using System;
 using System.Data;
+using System.Web;
 using System.Web.Security;
+using Umbraco.Core;
+using Umbraco.Core.Models;
+using Umbraco.Web.UI;
 using umbraco.BusinessLogic;
 using umbraco.DataLayer;
 using umbraco.BasePages;
-using umbraco.IO;
+using Umbraco.Core.IO;
 using umbraco.cms.businesslogic.member;
 
 namespace umbraco
 {
-    public class StylesheetTasks : interfaces.ITaskReturnUrl
+    public class StylesheetTasks : LegacyDialogTask
     {
-
-        private string _alias;
-        private int _parentID;
-        private int _typeID;
-        private int _userID;
-
-        public int UserId
+        public override bool PerformSave()
         {
-            set { _userID = value; }
-        }
-        public int TypeID
-        {
-            set { _typeID = value; }
-            get { return _typeID; }
-        }
+            //normalize path
+            Alias = Alias.Replace("/", "\\");
 
+            var sheet = ApplicationContext.Current.Services.FileService.GetStylesheetByName(Alias);
+            if (sheet == null)
+            {
+                sheet = new Stylesheet(Alias.EnsureEndsWith(".css"));
+                ApplicationContext.Current.Services.FileService.SaveStylesheet(sheet);
+            }
 
-        public string Alias
-        {
-            set { _alias = value; }
-            get { return _alias; }
-        }
-
-        public int ParentID
-        {
-            set { _parentID = value; }
-            get { return _parentID; }
-        }
-
-        public bool Save()
-        {
-
-            int id = -1;
-            umbraco.cms.businesslogic.web.StyleSheet checkingSheet =umbraco.cms.businesslogic.web.StyleSheet.GetByName(Alias);
-            if (checkingSheet != null)
-                id = checkingSheet.Id;
-            else
-                id =cms.businesslogic.web.StyleSheet.MakeNew(BusinessLogic.User.GetUser(_userID), Alias, "", "").Id;            
-            m_returnUrl = string.Format("settings/stylesheet/editStylesheet.aspx?id={0}", id);
+            _returnUrl = string.Format("settings/stylesheet/editStylesheet.aspx?id={0}", HttpUtility.UrlEncode(sheet.Path));
             return true;
         }
 
-        public bool Delete()
+        public override bool PerformDelete()
         {
-            cms.businesslogic.web.StyleSheet s = new cms.businesslogic.web.StyleSheet(ParentID);
+            var s = cms.businesslogic.web.StyleSheet.GetByName(Alias);
             s.delete();
             return true;
         }
 
-        #region ITaskReturnUrl Members
-        private string m_returnUrl = "";
-        public string ReturnUrl
+        private string _returnUrl = "";
+        
+        public override string ReturnUrl
         {
-            get { return m_returnUrl; }
+            get { return _returnUrl; }
         }
 
-        #endregion
+        public override string AssignedApp
+        {
+            get { return DefaultApps.settings.ToString(); }
+        }
     }
 }

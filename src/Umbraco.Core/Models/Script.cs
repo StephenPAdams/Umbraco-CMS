@@ -1,7 +1,6 @@
 ﻿using System;
-using System.Linq;
 using System.Runtime.Serialization;
-using Umbraco.Core.Configuration;
+using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.IO;
 
 namespace Umbraco.Core.Models
@@ -13,45 +12,18 @@ namespace Umbraco.Core.Models
     [DataContract(IsReference = true)]
     public class Script : File
     {
-        public Script(string path) : base(path)
-        {
-            base.Path = path;
-        }
+        public Script(string path)
+            : this(path, (Func<File, string>) null)
+        { }
 
-        /// <summary>
-        /// Boolean indicating whether the file could be validated
-        /// </summary>
-        /// <remarks>
-        /// The validation logic was previsouly placed in the codebehind of editScript.aspx,
-        /// but has been moved to the script file so the validation is central.
-        /// </remarks>
-        /// <returns>True if file is valid, otherwise false</returns>
-        public override bool IsValid()
-        {
-            //NOTE Since a script file can be both JS, Razor Views, Razor Macros and Xslt
-            //it might be an idea to create validations for all 3 and divide the validation 
-            //into 4 private methods.
-            //See codeEditorSave.asmx.cs for reference.
+        internal Script(string path, Func<File, string> getFileContent)
+            : base(path, getFileContent)
+        { }
 
-            var exts = UmbracoSettings.ScriptFileTypes.Split(',').ToList();
-            /*if (UmbracoSettings.DefaultRenderingEngine == RenderingEngine.Mvc)
-            {
-                exts.Add("cshtml");
-                exts.Add("vbhtml");
-            }*/
-
-            var dirs = SystemDirectories.Scripts;
-            /*if (UmbracoSettings.DefaultRenderingEngine == RenderingEngine.Mvc)
-                dirs += "," + SystemDirectories.MvcViews;*/
-
-            //Validate file
-            var validFile = IOHelper.VerifyEditPath(Path, dirs.Split(','));
-
-            //Validate extension
-            var validExtension = IOHelper.VerifyFileExtension(Path, exts);
-
-            return validFile && validExtension;
-        }
+        [Obsolete("This is no longer used and will be removed from the codebase in future versions")]
+        public Script(string path, IContentSection contentConfig)
+            : base(path)
+        { }
 
         /// <summary>
         /// Indicates whether the current entity has an identity, which in this case is a path/name.

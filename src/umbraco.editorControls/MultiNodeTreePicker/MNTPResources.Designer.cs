@@ -8,6 +8,8 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
+using System;
+
 namespace umbraco.editorControls.MultiNodeTreePicker
 {
 
@@ -22,6 +24,7 @@ namespace umbraco.editorControls.MultiNodeTreePicker
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "4.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
+    [Obsolete("IDataType and all other references to the legacy property editors are no longer used this will be removed from the codebase in future versions")]
     public class MNTPResources {
         
         private static global::System.Resources.ResourceManager resourceMan;
@@ -115,7 +118,7 @@ namespace umbraco.editorControls.MultiNodeTreePicker
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to You can specify to store the data in Umbraco as comma seperated or as XML. By default it is stored as XML which makes it easier to use the saved value in XSLT, however, storing it as comma seperated makes it easier to work with the data using the API such as Node factory..
+        ///   Looks up a localized string similar to You can specify to store the data in Umbraco as comma separated or as XML. By default it is stored as XML which makes it easier to use the saved value in XSLT, however, storing it as comma separated makes it easier to work with the data using the API such as Node factory..
         /// </summary>
         public static string Desc_StoreAsComma {
             get {

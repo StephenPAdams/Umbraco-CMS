@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.DatabaseAnnotations;
 
@@ -41,26 +42,38 @@ namespace Umbraco.Core.Models.Rdbms
         public string Login { get; set; }
 
         [Column("userPassword")]
-        [Length(125)]
+        [Length(500)]
         public string Password { get; set; }
 
         [Column("userEmail")]
         public string Email { get; set; }
-
-        [Column("userDefaultPermissions")]
-        [NullSetting(NullSetting = NullSettings.Null)]
-        [Length(50)]
-        public string DefaultPermissions { get; set; }
-
+        
         [Column("userLanguage")]
         [NullSetting(NullSetting = NullSettings.Null)]
         [Length(10)]
         public string UserLanguage { get; set; }
 
-        [Column("defaultToLiveEditing")]
-        [Constraint(Default = "0")]
-        public bool DefaultToLiveEditing { get; set; }
+        [Column("securityStampToken")]
+        [NullSetting(NullSetting = NullSettings.Null)]
+        [Length(255)]
+        public string SecurityStampToken { get; set; }
 
+        [Column("failedLoginAttempts")]
+        [NullSetting(NullSetting = NullSettings.Null)]
+        public int? FailedLoginAttempts { get; set; }
+
+        [Column("lastLockoutDate")]
+        [NullSetting(NullSetting = NullSettings.Null)]
+        public DateTime? LastLockoutDate { get; set; }
+
+        [Column("lastPasswordChangeDate")]
+        [NullSetting(NullSetting = NullSettings.Null)]
+        public DateTime? LastPasswordChangeDate { get; set; }
+
+        [Column("lastLoginDate")]
+        [NullSetting(NullSetting = NullSettings.Null)]
+        public DateTime? LastLoginDate { get; set; }
+        
         [ResultColumn]
         public List<User2AppDto> User2AppDtos { get; set; }
     }

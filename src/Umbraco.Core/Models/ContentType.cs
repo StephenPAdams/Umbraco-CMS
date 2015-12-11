@@ -15,11 +15,11 @@ namespace Umbraco.Core.Models
     {
         private int _defaultTemplate;
         private IEnumerable<ITemplate> _allowedTemplates;
-        
+
         /// <summary>
         /// Constuctor for creating a ContentType with the parent's id.
         /// </summary>
-        /// <remarks>You usually only want to use this for creating ContentTypes at the root.</remarks>
+        /// <remarks>Only use this for creating ContentTypes at the root (with ParentId -1).</remarks>
         /// <param name="parentId"></param>
         public ContentType(int parentId) : base(parentId)
         {
@@ -31,14 +31,26 @@ namespace Umbraco.Core.Models
         /// </summary>
         /// <remarks>Use this to ensure inheritance from parent.</remarks>
         /// <param name="parent"></param>
-		public ContentType(IContentType parent) : base(parent)
-		{
-			_allowedTemplates = new List<ITemplate>();
-		}
+        [Obsolete("This method is obsolete, use ContentType(IContentType parent, string alias) instead.", false)]
+        public ContentType(IContentType parent) : this(parent, null)
+        {
+        }
+
+        /// <summary>
+        /// Constuctor for creating a ContentType with the parent as an inherited type.
+        /// </summary>
+        /// <remarks>Use this to ensure inheritance from parent.</remarks>
+        /// <param name="parent"></param>
+        /// <param name="alias"></param>
+        public ContentType(IContentType parent, string alias)
+            : base(parent, alias)
+        {
+            _allowedTemplates = new List<ITemplate>();
+        }
 
         private static readonly PropertyInfo DefaultTemplateSelector = ExpressionHelper.GetPropertyInfo<ContentType, int>(x => x.DefaultTemplateId);
         private static readonly PropertyInfo AllowedTemplatesSelector = ExpressionHelper.GetPropertyInfo<ContentType, IEnumerable<ITemplate>>(x => x.AllowedTemplates);
-        
+
         /// <summary>
         /// Gets or sets the alias of the default Template.
         /// </summary>
@@ -78,7 +90,11 @@ namespace Umbraco.Core.Models
                 {
                     _allowedTemplates = value;
                     return _allowedTemplates;
-                }, _allowedTemplates, AllowedTemplatesSelector);
+                }, _allowedTemplates, AllowedTemplatesSelector,
+                    //Custom comparer for enumerable
+                    new DelegateEqualityComparer<IEnumerable<ITemplate>>(
+                        (templates, enumerable) => templates.UnsortedSequenceEqual(enumerable),
+                        templates => templates.GetHashCode()));
             }
         }
 
@@ -95,7 +111,7 @@ namespace Umbraco.Core.Models
             }
 
             DefaultTemplateId = template.Id;
-            if(_allowedTemplates.Any(x => x != null && x.Id == template.Id) == false)
+            if (_allowedTemplates.Any(x => x != null && x.Id == template.Id) == false)
             {
                 var templates = AllowedTemplates.ToList();
                 templates.Add(template);
@@ -122,98 +138,6 @@ namespace Umbraco.Core.Models
         }
 
         /// <summary>
-        /// Indicates whether a specific property on the current <see cref="IContent"/> entity is dirty.
-        /// </summary>
-        /// <param name="propertyName">Name of the property to check</param>
-        /// <returns>True if Property is dirty, otherwise False</returns>
-        public override bool IsPropertyDirty(string propertyName)
-        {
-            bool existsInEntity = base.IsPropertyDirty(propertyName);
-
-            bool anyDirtyGroups = PropertyGroups.Any(x => x.IsPropertyDirty(propertyName));
-            bool anyDirtyTypes = PropertyTypes.Any(x => x.IsPropertyDirty(propertyName));
-
-            return existsInEntity || anyDirtyGroups || anyDirtyTypes;
-        }
-
-        /// <summary>
-        /// Indicates whether the current entity is dirty.
-        /// </summary>
-        /// <returns>True if entity is dirty, otherwise False</returns>
-        public override bool IsDirty()
-        {
-            bool dirtyEntity = base.IsDirty();
-
-            bool dirtyGroups = PropertyGroups.Any(x => x.IsDirty());
-            bool dirtyTypes = PropertyTypes.Any(x => x.IsDirty());
-
-            return dirtyEntity || dirtyGroups || dirtyTypes;
-        }
-
-        /// <summary>
-        /// Resets dirty properties by clearing the dictionary used to track changes.
-        /// </summary>
-        /// <remarks>
-        /// Please note that resetting the dirty properties could potentially
-        /// obstruct the saving of a new or updated entity.
-        /// </remarks>
-        public override void ResetDirtyProperties()
-        {
-            base.ResetDirtyProperties();
-
-            //loop through each property group to reset the property types
-            var propertiesReset = new List<int>();
-
-            foreach (var propertyGroup in PropertyGroups)
-            {
-                propertyGroup.ResetDirtyProperties();
-                foreach (var propertyType in propertyGroup.PropertyTypes)
-                {                    
-                    propertyType.ResetDirtyProperties();
-                    propertiesReset.Add(propertyType.Id);
-                }
-            }
-            //then loop through our property type collection since some might not exist on a property group
-            //but don't re-reset ones we've already done.
-            foreach (var propertyType in PropertyTypes.Where(x => propertiesReset.Contains(x.Id) == false))
-            {
-                propertyType.ResetDirtyProperties();
-            }
-        }
-
-        /// <summary>
-        /// Creates a clone of the current entity
-        /// </summary>
-        /// <returns></returns>
-        public IContentType Clone(string alias)
-        {
-            var clone = (ContentType)this.MemberwiseClone();
-            clone.Alias = alias;
-            clone.Key = Guid.Empty;
-            var propertyGroups = this.PropertyGroups.Select(x => x.Clone()).ToList();
-            clone.PropertyGroups = new PropertyGroupCollection(propertyGroups);
-            clone.PropertyTypes = this.PropertyTypeCollection.Select(x => x.Clone()).ToList();
-            clone.ResetIdentity();
-            clone.ResetDirtyProperties(false);
-
-            foreach (var propertyGroup in clone.PropertyGroups)
-            {
-                propertyGroup.ResetIdentity();
-                foreach (var propertyType in propertyGroup.PropertyTypes)
-                {
-                    propertyType.ResetIdentity();
-                }
-            }
-
-            foreach (var propertyType in clone.PropertyTypes.Where(x => x.HasIdentity))
-            {
-                propertyType.ResetIdentity();
-            }
-
-            return clone;
-        }
-
-        /// <summary>
         /// Method to call when Entity is being saved
         /// </summary>
         /// <remarks>Created date is set and a Unique key is assigned</remarks>
@@ -221,17 +145,45 @@ namespace Umbraco.Core.Models
         {
             base.AddingEntity();
 
-            if(Key == Guid.Empty)
+            if (Key == Guid.Empty)
                 Key = Guid.NewGuid();
         }
 
+
         /// <summary>
-        /// Method to call when Entity is being updated
+        /// Creates a deep clone of the current entity with its identity/alias and it's property identities reset
         /// </summary>
-        /// <remarks>Modified Date is set and a new Version guid is set</remarks>
-        internal override void UpdatingEntity()
+        /// <returns></returns>
+        [Obsolete("Use DeepCloneWithResetIdentities instead")]
+        public IContentType Clone(string alias)
         {
-            base.UpdatingEntity();
+            return DeepCloneWithResetIdentities(alias);
         }
+
+        /// <summary>
+        /// Creates a deep clone of the current entity with its identity/alias and it's property identities reset
+        /// </summary>
+        /// <returns></returns>
+        public IContentType DeepCloneWithResetIdentities(string alias)
+        {
+            var clone = (ContentType)DeepClone();
+            clone.Alias = alias;
+            clone.Key = Guid.Empty;
+            foreach (var propertyGroup in clone.PropertyGroups)
+            {
+                propertyGroup.ResetIdentity();
+                propertyGroup.ResetDirtyProperties(false);
+            }
+            foreach (var propertyType in clone.PropertyTypes)
+            {
+                propertyType.ResetIdentity();
+                propertyType.ResetDirtyProperties(false);
+            }
+
+            clone.ResetIdentity();
+            clone.ResetDirtyProperties(false);
+            return clone;
+        }
+
     }
 }

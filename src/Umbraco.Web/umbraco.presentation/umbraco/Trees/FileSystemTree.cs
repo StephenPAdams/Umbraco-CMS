@@ -16,18 +16,18 @@ namespace umbraco.cms.presentation.Trees
     {
 
         public FileSystemTree(string application) : base(application) { }
-        
+
         public override abstract void RenderJS(ref System.Text.StringBuilder Javascript);
         protected override abstract void CreateRootNode(ref XmlTreeNode rootNode);
 
-        protected abstract string FilePath { get;}
-        protected abstract string FileSearchPattern { get;}
+        protected abstract string FilePath { get; }
+        protected abstract string FileSearchPattern { get; }
 
         /// <summary>
         /// Inheritors can override this method to modify the file node that is created.
         /// </summary>
         /// <param name="xNode"></param>
-        protected virtual void OnRenderFileNode(ref XmlTreeNode xNode) { }        
+        protected virtual void OnRenderFileNode(ref XmlTreeNode xNode) { }
 
         /// <summary>
         /// Inheritors can override this method to modify the folder node that is created.
@@ -51,7 +51,9 @@ namespace umbraco.cms.presentation.Trees
             }
 
             DirectoryInfo dirInfo = new DirectoryInfo(path);
-            DirectoryInfo[] dirInfos = dirInfo.GetDirectories();
+
+
+            DirectoryInfo[] dirInfos = dirInfo.Exists ? dirInfo.GetDirectories() : new DirectoryInfo[] { };
 
             var args = new TreeEventArgs(tree);
             OnBeforeTreeRender(dirInfo, args);
@@ -61,15 +63,15 @@ namespace umbraco.cms.presentation.Trees
                 if ((dir.Attributes & FileAttributes.Hidden) == 0)
                 {
                     XmlTreeNode xDirNode = XmlTreeNode.Create(this);
-					xDirNode.NodeID = orgPath + dir.Name;
+                    xDirNode.NodeID = orgPath + dir.Name;
                     xDirNode.Menu.Clear();
                     xDirNode.Text = dir.Name;
                     xDirNode.Action = string.Empty;
                     xDirNode.Source = GetTreeServiceUrl(orgPath + dir.Name);
                     xDirNode.Icon = FolderIcon;
                     xDirNode.OpenIcon = FolderIconOpen;
-					xDirNode.HasChildren = dir.GetFiles().Length > 0 || dir.GetDirectories().Length > 0;
-                    
+                    xDirNode.HasChildren = dir.GetFiles().Length > 0 || dir.GetDirectories().Length > 0;
+
                     OnRenderFolderNode(ref xDirNode);
                     OnBeforeNodeRender(ref tree, ref xDirNode, EventArgs.Empty);
                     if (xDirNode != null)
@@ -77,20 +79,39 @@ namespace umbraco.cms.presentation.Trees
                         tree.Add(xDirNode);
                         OnAfterNodeRender(ref tree, ref xDirNode, EventArgs.Empty);
                     }
-                    
-                    
+
+
                 }
             }
-            FileInfo[] fileInfo = dirInfo.GetFiles(FileSearchPattern);
+
+            //this is a hack to enable file system tree to support multiple file extension look-up
+            //so the pattern both support *.* *.xml and xml,js,vb for lookups
+            string[] allowedExtensions = new string[0];
+            bool filterByMultipleExtensions = FileSearchPattern.Contains(",");
+            FileInfo[] fileInfo;
+
+            if (filterByMultipleExtensions)
+            {
+                fileInfo = dirInfo.Exists ? dirInfo.GetFiles() : new FileInfo[] {};
+                allowedExtensions = FileSearchPattern.ToLower().Split(',');
+            }
+            else
+            {
+                fileInfo = dirInfo.Exists ? dirInfo.GetFiles(FileSearchPattern) : new FileInfo[] { };
+            }
+
             foreach (FileInfo file in fileInfo)
             {
                 if ((file.Attributes & FileAttributes.Hidden) == 0)
                 {
+                    if (filterByMultipleExtensions && Array.IndexOf<string>(allowedExtensions, file.Extension.ToLower().Trim('.')) < 0)
+                        continue;
+
                     XmlTreeNode xFileNode = XmlTreeNode.Create(this);
-					xFileNode.NodeID = orgPath + file.Name;
+                    xFileNode.NodeID = orgPath + file.Name;
                     xFileNode.Text = file.Name;
                     if (!((orgPath == "")))
-                        xFileNode.Action = "javascript:openFile('" + orgPath  + file.Name + "');";
+                        xFileNode.Action = "javascript:openFile('" + orgPath + file.Name + "');";
                     else
                         xFileNode.Action = "javascript:openFile('" + file.Name + "');";
                     xFileNode.Icon = "doc.gif";
@@ -103,11 +124,11 @@ namespace umbraco.cms.presentation.Trees
                         tree.Add(xFileNode);
                         OnAfterNodeRender(ref tree, ref xFileNode, EventArgs.Empty);
                     }
-                    
+
 
                 }
             }
             OnAfterTreeRender(dirInfo, args);
-        }        
+        }
     }
 }

@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using Umbraco.Core.Persistence.DatabaseAnnotations;
 using Umbraco.Core.Persistence.DatabaseModelDefinitions;
+using Umbraco.Core.Persistence.Querying;
 
 namespace Umbraco.Core.Persistence.SqlSyntax
 {
@@ -30,6 +32,11 @@ namespace Umbraco.Core.Persistence.SqlSyntax
                                   FormatPrimaryKey,
                                   FormatIdentity
                               };
+        }
+
+        public string GetWildcardPlaceholder()
+        {
+            return "%";
         }
 
         public string StringLengthNonUnicodeColumnDefinitionFormat = "VARCHAR({0})";
@@ -100,6 +107,58 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             DbTypeMap.Set<decimal?>(DbType.Decimal, DecimalColumnDefinition);
 
             DbTypeMap.Set<byte[]>(DbType.Binary, BlobColumnDefinition);
+        }
+
+        public virtual string EscapeString(string val)
+        {
+            return PetaPocoExtensions.EscapeAtSymbols(val.Replace("'", "''"));
+        }
+
+        public virtual string GetStringColumnEqualComparison(string column, int paramIndex, TextColumnType columnType)
+        {
+            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
+            return string.Format("upper({0}) = upper(@{1})", column, paramIndex);
+        }
+
+        public virtual string GetStringColumnWildcardComparison(string column, int paramIndex, TextColumnType columnType)
+        {
+            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
+            return string.Format("upper({0}) LIKE upper(@{1})", column, paramIndex);
+        }
+
+        [Obsolete("Use the overload with the parameter index instead")]
+        public virtual string GetStringColumnEqualComparison(string column, string value, TextColumnType columnType)
+        {
+            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
+            return string.Format("upper({0}) = '{1}'", column, value.ToUpper());
+        }
+
+        [Obsolete("Use the overload with the parameter index instead")]
+        public virtual string GetStringColumnStartsWithComparison(string column, string value, TextColumnType columnType)
+        {
+            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
+            return string.Format("upper({0}) LIKE '{1}%'", column, value.ToUpper());
+        }
+
+        [Obsolete("Use the overload with the parameter index instead")]
+        public virtual string GetStringColumnEndsWithComparison(string column, string value, TextColumnType columnType)
+        {
+            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
+            return string.Format("upper({0}) LIKE '%{1}'", column, value.ToUpper());
+        }
+
+        [Obsolete("Use the overload with the parameter index instead")]
+        public virtual string GetStringColumnContainsComparison(string column, string value, TextColumnType columnType)
+        {
+            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
+            return string.Format("upper({0}) LIKE '%{1}%'", column, value.ToUpper());
+        }
+
+        [Obsolete("Use the overload with the parameter index instead")]
+        public virtual string GetStringColumnWildcardComparison(string column, string value, TextColumnType columnType)
+        {
+            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
+            return string.Format("upper({0}) LIKE '{1}'", column, value.ToUpper());
         }
 
         public virtual string GetQuotedTableName(string tableName)
@@ -176,6 +235,8 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             return new List<Tuple<string, string, string>>();
         }
 
+        public abstract IEnumerable<Tuple<string, string, string, bool>> GetDefinedIndexes(Database db);
+
         public virtual bool DoesTableExist(Database db, string tableName)
         {
             return false;
@@ -189,6 +250,23 @@ namespace Umbraco.Core.Persistence.SqlSyntax
         public virtual bool SupportsIdentityInsert()
         {
             return true;
+        }
+
+        /// <summary>
+        /// This is used ONLY if we need to format datetime without using SQL parameters (i.e. during migrations)
+        /// </summary>
+        /// <param name="date"></param>
+        /// <param name="includeTime"></param>
+        /// <returns></returns>
+        /// <remarks>
+        /// MSSQL has a DateTime standard that is unambiguous and works on all servers:
+        /// YYYYMMDD HH:mm:ss
+        /// </remarks>
+        public virtual string FormatDateTime(DateTime date, bool includeTime = true)
+        {
+            // need CultureInfo.InvariantCulture because ":" here is the "time separator" and
+            // may be converted to something else in different cultures (eg "." in DK).
+            return date.ToString(includeTime ? "yyyyMMdd HH:mm:ss" : "yyyyMMdd", CultureInfo.InvariantCulture);
         }
 
         public virtual string Format(TableDefinition table)
@@ -382,9 +460,9 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             if (column.DefaultValue == null)
                 return string.Empty;
 
-            // TODO: Actually use the SystemMethods on the DTO. For now I've put a hack in to catch getdate(), not using the others at the moment
+            //hack - probably not needed with latest changes
             if (column.DefaultValue.ToString().ToLower().Equals("getdate()".ToLower()))
-                return string.Format(DefaultValueFormat, column.DefaultValue);
+                column.DefaultValue = SystemMethods.CurrentDateTime;
 
             // see if this is for a system method
             if (column.DefaultValue is SystemMethods)

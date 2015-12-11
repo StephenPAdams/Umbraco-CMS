@@ -11,6 +11,7 @@ using System.Web.UI.WebControls;
 using System.Web.UI.HtmlControls;
 using System.IO;
 using Umbraco.Core;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.IO;
 using umbraco.cms.presentation.Trees;
 using System.Linq;
@@ -27,9 +28,10 @@ namespace umbraco.cms.presentation.settings.scripts
 
         }
         protected System.Web.UI.HtmlControls.HtmlForm Form1;
-        protected uicontrols.UmbracoPanel Panel1;
+        protected uicontrols.TabView Panel1;
         protected System.Web.UI.WebControls.TextBox NameTxt;
         protected uicontrols.Pane Pane7;
+        protected uicontrols.Pane Pane8;
 
         protected System.Web.UI.WebControls.Literal lttPath;
         protected System.Web.UI.WebControls.Literal editorJs;
@@ -37,60 +39,44 @@ namespace umbraco.cms.presentation.settings.scripts
         protected umbraco.uicontrols.PropertyPanel pp_name;
         protected umbraco.uicontrols.PropertyPanel pp_path;
 
-        protected MenuIconI SaveButton;
+        protected MenuButton SaveButton;
 
-        private string file;
+        private string filename;
+        protected string ScriptTreeSyncPath { get; private set; }
 
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-            NameTxt.Text = file;
 
-            string path = "";
-            if (file.StartsWith("~/"))
-                path = Umbraco.Core.IO.IOHelper.ResolveUrl(file);
-            else
-                path = Umbraco.Core.IO.IOHelper.ResolveUrl(Umbraco.Core.IO.SystemDirectories.Scripts + "/" + file);
+            // get the script, ensure it exists (not null) and validate (because
+            // the file service ensures that it loads scripts from the proper location
+            // but does not seem to validate extensions?) - in case of an error,
+            // throw - that's what we did anyways.
 
+            // also scrapping the code that added .cshtml and .vbhtml extensions, and
+            // ~/Views directory - we're not using editScript.aspx for views anymore.
 
-            lttPath.Text = "<a target='_blank' href='" + path + "'>" + path + "</a>";
+            var svce = ApplicationContext.Current.Services.FileService;
+            var script = svce.GetScriptByName(filename);
+            if (script == null) // not found
+                throw new FileNotFoundException("Could not find file '" + filename + "'.");
 
-            var exts = UmbracoSettings.ScriptFileTypes.Split(',').ToList();
-            if (Umbraco.Core.Configuration.UmbracoSettings.DefaultRenderingEngine == RenderingEngine.Mvc)
-            {
-                exts.Add("cshtml");
-                exts.Add("vbhtml");
-            }
+            lttPath.Text = "<a id=\"" + lttPath.ClientID + "\" target=\"_blank\" href=\"" + script.VirtualPath + "\">" + script.VirtualPath + "</a>";
+            editorSource.Text = script.Content;
+            ScriptTreeSyncPath = DeepLink.GetTreePathFromFilePath(filename);
 
-            var dirs = Umbraco.Core.IO.SystemDirectories.Scripts;
-            if (Umbraco.Core.Configuration.UmbracoSettings.DefaultRenderingEngine == RenderingEngine.Mvc)
-                dirs += "," + Umbraco.Core.IO.SystemDirectories.MvcViews;
-
-            // validate file
-            Umbraco.Core.IO.IOHelper.ValidateEditPath(Umbraco.Core.IO.IOHelper.MapPath(path), dirs.Split(','));
-
-            // validate extension
-            Umbraco.Core.IO.IOHelper.ValidateFileExtension(Umbraco.Core.IO.IOHelper.MapPath(path), exts);
-
-
-            StreamReader SR;
-            string S;
-            SR = File.OpenText(Umbraco.Core.IO.IOHelper.MapPath(path));
-            S = SR.ReadToEnd();
-            SR.Close();
-
-            editorSource.Text = S;
+            // name derives from filename, clean for xss
+            NameTxt.Text = filename.CleanForXss('\\', '/');
 
             Panel1.Text = ui.Text("editscript", base.getUser());
             pp_name.Text = ui.Text("name", base.getUser());
             pp_path.Text = ui.Text("path", base.getUser());
 
-            if (!IsPostBack)
+            if (IsPostBack == false)
             {
-                string sPath = DeepLink.GetTreePathFromFilePath(file);
                 ClientTools
                     .SetActiveTreeType(TreeDefinitionCollection.Instance.FindTree<loadScripts>().Tree.Alias)
-                    .SyncTree(sPath, false);
+                    .SyncTree(ScriptTreeSyncPath, false);
             }
         }
 
@@ -98,18 +84,27 @@ namespace umbraco.cms.presentation.settings.scripts
         {
             base.OnInit(e);
 
-            file = Request.QueryString["file"].TrimStart('/');
+            filename = Request.QueryString["file"].Replace('\\', '/').TrimStart('/');
 
             //need to change the editor type if it is XML
-            if (file.EndsWith("xml"))
+            if (filename.EndsWith("xml"))
                 editorSource.CodeBase = uicontrols.CodeArea.EditorType.XML;
-            else if (file.EndsWith("master"))
+            else if (filename.EndsWith("master"))
                 editorSource.CodeBase = uicontrols.CodeArea.EditorType.HTML;
 
-            SaveButton = Panel1.Menu.NewIcon();
-            SaveButton.ImageURL = SystemDirectories.Umbraco + "/images/editor/save.gif";
-            SaveButton.AltText = "Save File";
+
+            var editor = Panel1.NewTabPage(ui.Text("settings","script"));
+            editor.Controls.Add(Pane7);
+
+            var props = Panel1.NewTabPage(ui.Text("properties"));
+            props.Controls.Add(Pane8);
+
+
+            SaveButton = Panel1.Menu.NewButton();
+            SaveButton.Text = ui.Text("save");
+            SaveButton.ButtonType = MenuButtonType.Primary;
             SaveButton.ID = "save";
+            SaveButton.CssClass = "client-side";
 
             if (editorSource.CodeBase == uicontrols.CodeArea.EditorType.HTML)
             {
@@ -135,14 +130,13 @@ namespace umbraco.cms.presentation.settings.scripts
                 Panel1.Menu.InsertSplitter();
 
                 uicontrols.MenuIconI helpIcon = Panel1.Menu.NewIcon();
-                helpIcon.OnClickCommand = umbraco.BasePages.ClientTools.Scripts.OpenModalWindow(umbraco.IO.IOHelper.ResolveUrl(umbraco.IO.SystemDirectories.Umbraco) + "/settings/modals/showumbracotags.aspx?alias=", ui.Text("template", "quickGuide"), 600, 580);
+                helpIcon.OnClickCommand = umbraco.BasePages.ClientTools.Scripts.OpenModalWindow(Umbraco.Core.IO.IOHelper.ResolveUrl(Umbraco.Core.IO.SystemDirectories.Umbraco) + "/settings/modals/showumbracotags.aspx?alias=", ui.Text("template", "quickGuide"), 600, 580);
                 helpIcon.ImageURL = UmbracoPath + "/images/editor/help.png";
                 helpIcon.AltText = ui.Text("template", "quickGuide");
 
             }
 
         }
-        
 
         protected override void OnPreRender(EventArgs e)
         {

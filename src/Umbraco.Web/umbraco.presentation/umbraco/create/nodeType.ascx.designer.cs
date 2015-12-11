@@ -13,6 +13,15 @@ namespace umbraco.cms.presentation.create.controls {
     public partial class nodeType {
         
         /// <summary>
+        /// pp_MasterDocumentType control.
+        /// </summary>
+        /// <remarks>
+        /// Auto-generated field.
+        /// To modify move field declaration from designer file to code-behind file.
+        /// </remarks>
+        protected global::umbraco.uicontrols.PropertyPanel pp_MasterDocumentType;
+        
+        /// <summary>
         /// masterType control.
         /// </summary>
         /// <remarks>
@@ -31,13 +40,13 @@ namespace umbraco.cms.presentation.create.controls {
         protected global::System.Web.UI.WebControls.Literal masterTypePreDefined;
         
         /// <summary>
-        /// RequiredFieldValidator1 control.
+        /// pp_name control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.RequiredFieldValidator RequiredFieldValidator1;
+        protected global::umbraco.uicontrols.PropertyPanel pp_name;
         
         /// <summary>
         /// rename control.
@@ -47,6 +56,15 @@ namespace umbraco.cms.presentation.create.controls {
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
         protected global::System.Web.UI.WebControls.TextBox rename;
+        
+        /// <summary>
+        /// RequiredFieldValidator1 control.
+        /// </summary>
+        /// <remarks>
+        /// Auto-generated field.
+        /// To modify move field declaration from designer file to code-behind file.
+        /// </remarks>
+        protected global::System.Web.UI.WebControls.RequiredFieldValidator RequiredFieldValidator1;
         
         /// <summary>
         /// createTemplate control.

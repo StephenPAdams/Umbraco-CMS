@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Web;
 using System.Web.UI;
 using System.Web.UI.WebControls;
 using Umbraco.Core.IO;
+using Umbraco.Core.Logging;
 using Umbraco.Web.Trees;
 using Umbraco.Web.UI.Controls;
 using umbraco;
@@ -21,7 +23,7 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 	public partial class EditView : global::umbraco.BasePages.UmbracoEnsuredPage
 	{
 		private Template _template;
-		protected MenuIconI SaveButton;
+		public MenuButton SaveButton;
 
 		public EditView()
 		{
@@ -34,7 +36,8 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 		public enum ViewEditorType
 		{
 			Template,
-			PartialView
+			PartialView,
+            PartialViewMacro
 		}
 
 		/// <summary>
@@ -42,7 +45,12 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 		/// </summary>
 		protected ViewEditorType EditorType
 		{
-			get { return _template == null ? ViewEditorType.PartialView : ViewEditorType.Template; }
+		    get
+		    {
+		        if (_template != null) return ViewEditorType.Template;
+                if (Request.QueryString["treeType"].IsNullOrWhiteSpace() == false && Request.QueryString["treeType"].InvariantEquals("partialViewMacros")) return ViewEditorType.PartialViewMacro;
+		        return ViewEditorType.PartialView;
+		    }
 		}
 
         protected string TemplateTreeSyncPath { get; private set; }
@@ -58,7 +66,7 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 	            {
 	                return TreeDefinitionCollection.Instance.FindTree<PartialViewsTree>().Tree.Alias;
 	            }
-	            return Request.QueryString["treeType"];
+	            return Request.CleanForXss("treeType");
 	        }
 	    }
 
@@ -83,11 +91,11 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 					MasterTemplate.Items.Add(new ListItem(ui.Text("none"), "0"));
 					var selectedTemplate = string.Empty;
 
-					foreach (Template t in Template.GetAllAsList())
+					foreach (var t in Template.GetAllAsList())
 					{
 						if (t.Id == _template.Id) continue;
 
-						var li = new ListItem(t.Text, t.Id.ToString());
+						var li = new ListItem(t.Text, t.Id.ToString(CultureInfo.InvariantCulture));
 						li.Attributes.Add("id", t.Alias.Replace(" ", "") + ".cshtml");
 						MasterTemplate.Items.Add(li);
 					}
@@ -95,38 +103,34 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 					try
 					{
 						if (_template.MasterTemplate > 0)
-							MasterTemplate.SelectedValue = _template.MasterTemplate.ToString();
+							MasterTemplate.SelectedValue = _template.MasterTemplate.ToString(CultureInfo.InvariantCulture);
 					}
 					catch (Exception ex)
 					{
+                        LogHelper.Error<EditView>("An error occurred setting a master template id", ex);
 					}
 
 					MasterTemplate.SelectedValue = selectedTemplate;
 					NameTxt.Text = _template.GetRawText();
 					AliasTxt.Text = _template.Alias;
 					editorSource.Text = _template.Design;
-
+				    PathPrefix.Visible = false;
 				}
 				else
 				{
 					//configure editor for editing a file....
 
 					NameTxt.Text = OriginalFileName;
-					var file = IOHelper.MapPath(SystemDirectories.MvcViews.EnsureEndsWith('/') + OriginalFileName);
+				    var svce = ApplicationContext.Current.Services.FileService;
+                    var file = EditorType == ViewEditorType.PartialView
+				        ? svce.GetPartialView(OriginalFileName)
+                        : svce.GetPartialViewMacro(OriginalFileName);
+				    editorSource.Text = file.Content;
 
-                    // validate file path
-                    if (file.StartsWith(IOHelper.MapPath(SystemDirectories.MvcViews.EnsureEndsWith('/')))) {
-
-					using (var sr = File.OpenText(file))
-					{
-						var s = sr.ReadToEnd();
-						editorSource.Text = s;
-					}
-                    } else
-                    {
-                        throw new ArgumentException("Couldn't open file - illegal path");
-                    }
-				
+                    const string prefixFormat = "<span style=\"display: inline-block; height: 20px; line-height: 20px; margin-bottom: 0px; padding: 4px 6px;\">{0}</span>";
+                    PathPrefix.Text = string.Format(prefixFormat, EditorType == ViewEditorType.PartialView
+				        ? "Partials/"
+				        : "MacroPartials/");
 				}							
 			}
             
@@ -150,7 +154,10 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 			{
 				//we are editing a view (i.e. partial view)
 				OriginalFileName = HttpUtility.UrlDecode(Request.QueryString["file"]);
-                TemplateTreeSyncPath = "-1,init," + Path.GetFileName(OriginalFileName);
+
+                //TemplateTreeSyncPath = "-1,init," + Path.GetFileName(OriginalFileName);
+
+                TemplateTreeSyncPath = DeepLink.GetTreePathFromFilePath(OriginalFileName.TrimStart("MacroPartials/").TrimStart("Partials/"));
 			}
 			else
 			{
@@ -158,11 +165,18 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 			}
 			
 			Panel1.hasMenu = true;
+            var editor = Panel1.NewTabPage(ui.Text("template"));
+            editor.Controls.Add(Pane8);
 
-			SaveButton = Panel1.Menu.NewIcon();
-			SaveButton.ImageURL = SystemDirectories.Umbraco + "/images/editor/save.gif";
-			SaveButton.AltText = ui.Text("save");
-			SaveButton.ID = "save";
+            var props = Panel1.NewTabPage(ui.Text("properties"));
+            props.Controls.Add(Pane7);
+
+
+            SaveButton = Panel1.Menu.NewButton();
+            SaveButton.Text = ui.Text("save");
+            SaveButton.ButtonType = MenuButtonType.Primary;
+            SaveButton.ID = "save";
+            SaveButton.CssClass = "client-side";
 
 			Panel1.Text = ui.Text("edittemplate");
 			pp_name.Text = ui.Text("name", base.getUser());
@@ -170,8 +184,7 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 			pp_masterTemplate.Text = ui.Text("mastertemplate", base.getUser());
 
 			// Editing buttons
-			Panel1.Menu.InsertSplitter();
-			MenuIconI umbField = Panel1.Menu.NewIcon();
+            MenuIconI umbField = editorSource.Menu.NewIcon();
 			umbField.ImageURL = UmbracoPath + "/images/editor/insField.gif";
 			umbField.OnClickCommand =
 				ClientTools.Scripts.OpenModalWindow(
@@ -181,7 +194,7 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 
 
 			// TODO: Update icon
-			MenuIconI umbDictionary = Panel1.Menu.NewIcon();
+            MenuIconI umbDictionary = editorSource.Menu.NewIcon();
 			umbDictionary.ImageURL = GlobalSettings.Path + "/images/editor/dictionaryItem.gif";
 			umbDictionary.OnClickCommand =
 				ClientTools.Scripts.OpenModalWindow(
@@ -195,8 +208,13 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 					ClientCallbackInsertMacroMarkup = "function(alias) {editViewEditor.insertMacroMarkup(alias);}",
 					ClientCallbackOpenMacroModel = "function(alias) {editViewEditor.openMacroModal(alias);}"
 				};
-			Panel1.Menu.InsertNewControl(macroSplitButton, 40);
-			
+            editorSource.Menu.InsertNewControl(macroSplitButton, 40);
+
+            MenuIconI umbTemplateQueryBuilder = editorSource.Menu.NewIcon();
+            umbTemplateQueryBuilder.ImageURL = UmbracoPath + "/images/editor/inshtml.gif";
+            umbTemplateQueryBuilder.OnClickCommand = "editViewEditor.openQueryModal()";
+            umbTemplateQueryBuilder.AltText = "Open query builder";
+
 			if (_template == null)
 			{
 				InitializeEditorForPartialView();
@@ -230,29 +248,33 @@ namespace Umbraco.Web.UI.Umbraco.Settings.Views
 		/// </summary>
 		private void InitializeEditorForTemplate()
 		{
-			
-			//TODO: implement content placeholders, etc... just like we had in v5
 
-			//Panel1.Menu.InsertSplitter();
+            //TODO: implement content placeholders, etc... just like we had in v5
 
-			//MenuIconI umbContainer = Panel1.Menu.NewIcon();
-			//umbContainer.ImageURL = UmbracoPath + "/images/editor/masterpagePlaceHolder.gif";
-			//umbContainer.AltText = ui.Text("template", "insertContentAreaPlaceHolder");
-			//umbContainer.OnClickCommand =
-			//	ClientTools.Scripts.OpenModalWindow(
-			//		IOHelper.ResolveUrl(SystemDirectories.Umbraco) +
-			//		"/dialogs/insertMasterpagePlaceholder.aspx?&id=" + _template.Id,
-			//		ui.Text("template", "insertContentAreaPlaceHolder"), 470, 320);
+            editorSource.Menu.InsertSplitter();
 
-			//MenuIconI umbContent = Panel1.Menu.NewIcon();
-			//umbContent.ImageURL = UmbracoPath + "/images/editor/masterpageContent.gif";
-			//umbContent.AltText = ui.Text("template", "insertContentArea");
-			//umbContent.OnClickCommand =
-			//	ClientTools.Scripts.OpenModalWindow(
-			//		IOHelper.ResolveUrl(SystemDirectories.Umbraco) + "/dialogs/insertMasterpageContent.aspx?id=" +
-			//		_template.Id, ui.Text("template", "insertContentArea"), 470, 300);
-			
-		}
+            MenuIconI umbRenderBody = editorSource.Menu.NewIcon();
+            umbRenderBody.ImageURL = UmbracoPath + "/images/editor/renderbody.gif";
+            //umbContainer.AltText = ui.Text("template", "insertContentAreaPlaceHolder");
+            umbRenderBody.AltText = "Insert @RenderBody()";
 
-	}
+            umbRenderBody.OnClickCommand = "editViewEditor.insertRenderBody()";
+
+            MenuIconI umbSection = editorSource.Menu.NewIcon();
+            umbSection.ImageURL = UmbracoPath + "/images/editor/masterpagePlaceHolder.gif";
+            //umbContainer.AltText = ui.Text("template", "insertContentAreaPlaceHolder");
+            umbSection.AltText = "Insert Section";
+
+            umbSection.OnClickCommand = "editViewEditor.openSnippetModal('section')";
+
+            MenuIconI umbRenderSection = editorSource.Menu.NewIcon();
+            umbRenderSection.ImageURL = UmbracoPath + "/images/editor/masterpageContent.gif";
+            //umbContainer.AltText = ui.Text("template", "insertContentAreaPlaceHolder");
+            umbRenderSection.AltText = "Insert @RenderSection";
+
+            umbRenderSection.OnClickCommand = "editViewEditor.openSnippetModal('rendersection')";
+
+        }
+
+    }
 }

@@ -2,45 +2,47 @@
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing;
+using Umbraco.Core.IO;
 using System.IO;
+
 
 namespace umbraco.editorControls.imagecropper
 {
+    [Obsolete("IDataType and all other references to the legacy property editors are no longer used this will be removed from the codebase in future versions")]
     public class ImageTransform
     {
+        private static readonly MediaFileSystem _fs = FileSystemProviderManager.Current.GetFileSystemProvider<MediaFileSystem>();
+
         public static void Execute(string sourceFile, string name, int cropX, int cropY, int cropWidth, int cropHeight, int sizeWidth, int sizeHeight, long quality)
         {
-            if (!File.Exists(sourceFile)) return;
 
-            string path = sourceFile.Substring(0, sourceFile.LastIndexOf('\\'));
+            if (!_fs.FileExists(sourceFile)) return;
+
+
+            string path = string.Empty;
+
+            //http or local filesystem
+            if (sourceFile.Contains("/"))
+                path = sourceFile.Substring(0, sourceFile.LastIndexOf('/'));
+            else
+                path = sourceFile.Substring(0, sourceFile.LastIndexOf('\\'));
 
             // TODO: Make configurable and move to imageInfo
             //if(File.Exists(String.Format(@"{0}\{1}.jpg", path, name))) return;
 
-            byte[] buffer = null;
+            //Do we need this check as we are always working with images that are already in a folder??
+            //DirectoryInfo di = new DirectoryInfo(path);
+            //if (!di.Exists) di.Create();
 
-            using (FileStream fs = new FileStream(sourceFile, FileMode.Open, FileAccess.Read))
+            using (var stream = _fs.OpenFile(sourceFile))
+            using (var image = Image.FromStream(stream))
+            using (var croppedImage = CropImage(image, new Rectangle(cropX, cropY, cropWidth, cropHeight)))
+            using (var resizedImage = ResizeImage(croppedImage, new Size(sizeWidth, sizeHeight)))
+            using (var b = new Bitmap(resizedImage))
             {
-                buffer = new byte[fs.Length];
-                fs.Read(buffer, 0, (int)fs.Length);
-                fs.Close();
+                SaveJpeg(String.Format("{0}/{1}.jpg", path, name), b, quality);
             }
-
-            Image image = Image.FromStream(new MemoryStream(buffer));
-
-            DirectoryInfo di = new DirectoryInfo(path);
-            if (!di.Exists) di.Create();
-
-            using (Image croppedImage = CropImage(image, new Rectangle(cropX, cropY, cropWidth, cropHeight)))
-            {
-                using (Image resizedImage = ResizeImage(croppedImage, new Size(sizeWidth, sizeHeight)))
-                {
-                    using (Bitmap b = new Bitmap(resizedImage))
-                    {
-                        SaveJpeg(String.Format("{0}/{1}.jpg", path, name), b, quality);
-                    }
-                }
-            }
+           
         }
 
         private static void SaveJpeg(string path, Bitmap img, long quality)
@@ -57,7 +59,13 @@ namespace umbraco.editorControls.imagecropper
             EncoderParameters encoderParams = new EncoderParameters(1);
             encoderParams.Param[0] = qualityParam;
 
-            img.Save(path, jpegCodec, encoderParams);
+            using (var fileStream = new MemoryStream())
+            {
+                img.Save(fileStream, jpegCodec, encoderParams);
+                fileStream.Position = 0;
+                _fs.AddFile(path, fileStream, true);    
+            }
+
         }
 
         private static ImageCodecInfo GetEncoderInfo(string mimeType)
@@ -97,20 +105,24 @@ namespace umbraco.editorControls.imagecropper
 
             Bitmap b = new Bitmap(destWidth, destHeight);
 
-            ImageAttributes ia = new ImageAttributes();
-            ia.SetWrapMode(WrapMode.TileFlipXY);
+            using (var ia = new ImageAttributes())
+            {
+                ia.SetWrapMode(WrapMode.TileFlipXY);
 
-            Graphics g = Graphics.FromImage(b);
-            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            g.Clear(Color.White);
-            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            g.CompositingQuality = CompositingQuality.HighQuality;
-            g.SmoothingMode = SmoothingMode.HighQuality;
-            g.DrawImage(imgToResize, new Rectangle(0, 0, destWidth, destHeight), 0, 0, imgToResize.Width,
-                        imgToResize.Height, GraphicsUnit.Pixel, ia);
+                using (Graphics g = Graphics.FromImage(b))
+                {
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    g.Clear(Color.White);
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.CompositingQuality = CompositingQuality.HighQuality;
+                    g.SmoothingMode = SmoothingMode.HighQuality;
+                    g.DrawImage(imgToResize, new Rectangle(0, 0, destWidth, destHeight), 0, 0, imgToResize.Width,
+                                imgToResize.Height, GraphicsUnit.Pixel, ia);
 
-            ia.Dispose();
-            g.Dispose();
+                    ia.Dispose();
+                }
+            }
+            
 
             return b;
         }

@@ -15,6 +15,7 @@ using System.Web.Compilation;
 using System.Web.Hosting;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.IO;
+using Umbraco.Core.Logging;
 
 namespace Umbraco.Core
 {
@@ -25,11 +26,8 @@ namespace Umbraco.Core
     /// </summary>
     public static class TypeFinder
     {
-        private static readonly HashSet<Assembly> LocalFilteredAssemblyCache = new HashSet<Assembly>();
-        private static readonly ReaderWriterLockSlim LocalFilteredAssemblyCacheLocker = new ReaderWriterLockSlim();
-        private static HashSet<Assembly> _allAssemblies = null;
-        private static HashSet<Assembly> _binFolderAssemblies = null;
-        private static readonly ReaderWriterLockSlim Locker = new ReaderWriterLockSlim();
+        private static volatile HashSet<Assembly> _localFilteredAssemblyCache = null;
+        private static readonly object LocalFilteredAssemblyCacheLocker = new object();
 
         /// <summary>
         /// lazily load a reference to all assemblies and only local assemblies.
@@ -45,162 +43,97 @@ namespace Umbraco.Core
         /// </remarks>
         internal static HashSet<Assembly> GetAllAssemblies()
         {
-            using (var lck = new UpgradeableReadLock(Locker))
+            return AllAssemblies.Value;
+        }
+
+        //Lazy access to the all assemblies list
+        private static readonly Lazy<HashSet<Assembly>> AllAssemblies = new Lazy<HashSet<Assembly>>(() =>
+        {
+            HashSet<Assembly> assemblies = null;
+            try
             {
-                if (_allAssemblies == null)
+                var isHosted = HttpContext.Current != null;
+
+                try
                 {
+                    if (isHosted)
+                    {
+                        assemblies = new HashSet<Assembly>(BuildManager.GetReferencedAssemblies().Cast<Assembly>());
+                    }
+                }
+                catch (InvalidOperationException e)
+                {
+                    if (!(e.InnerException is SecurityException))
+                        throw;
+                }
 
-                    lck.UpgradeToWriteLock();
+                if (assemblies == null)
+                {
+                    //NOTE: we cannot use AppDomain.CurrentDomain.GetAssemblies() because this only returns assemblies that have
+                    // already been loaded in to the app domain, instead we will look directly into the bin folder and load each one.
+                    var binFolder = IOHelper.GetRootDirectoryBinFolder();
+                    var binAssemblyFiles = Directory.GetFiles(binFolder, "*.dll", SearchOption.TopDirectoryOnly).ToList();
+                    //var binFolder = Assembly.GetExecutingAssembly().GetAssemblyFile().Directory;
+                    //var binAssemblyFiles = Directory.GetFiles(binFolder.FullName, "*.dll", SearchOption.TopDirectoryOnly).ToList();
+                    assemblies = new HashSet<Assembly>();
+                    foreach (var a in binAssemblyFiles)
+                    {
+                        try
+                        {
+                            var assName = AssemblyName.GetAssemblyName(a);
+                            var ass = Assembly.Load(assName);
+                            assemblies.Add(ass);
+                        }
+                        catch (Exception e)
+                        {
+                            if (e is SecurityException || e is BadImageFormatException)
+                            {
+                                //swallow these exceptions
+                            }
+                            else
+                            {
+                                throw;
+                            }
+                        }
+                    }
+                }
 
-                    HashSet<Assembly> assemblies = null;
+                //if for some reason they are still no assemblies, then use the AppDomain to load in already loaded assemblies.
+                if (!assemblies.Any())
+                {
+                    foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        assemblies.Add(a);
+                    }
+                }
+
+                //here we are trying to get the App_Code assembly
+                var fileExtensions = new[] { ".cs", ".vb" }; //only vb and cs files are supported
+                var appCodeFolder = new DirectoryInfo(IOHelper.MapPath(IOHelper.ResolveUrl("~/App_code")));
+                //check if the folder exists and if there are any files in it with the supported file extensions
+                if (appCodeFolder.Exists && (fileExtensions.Any(x => appCodeFolder.GetFiles("*" + x).Any())))
+                {
                     try
                     {
-                        var isHosted = HttpContext.Current != null;
-
-                        try
-                        {
-                            if (isHosted)
-                            {
-                                assemblies = new HashSet<Assembly>(BuildManager.GetReferencedAssemblies().Cast<Assembly>());
-                            }
-                        }
-                        catch (InvalidOperationException e)
-                        {
-                            if (!(e.InnerException is SecurityException))
-                                throw;
-                        }
-
-
-                        if (assemblies == null)
-                        {
-                            //NOTE: we cannot use AppDomain.CurrentDomain.GetAssemblies() because this only returns assemblies that have
-                            // already been loaded in to the app domain, instead we will look directly into the bin folder and load each one.
-                            var binFolder = IOHelper.GetRootDirectoryBinFolder();
-                            var binAssemblyFiles = Directory.GetFiles(binFolder, "*.dll", SearchOption.TopDirectoryOnly).ToList();
-                            //var binFolder = Assembly.GetExecutingAssembly().GetAssemblyFile().Directory;
-                            //var binAssemblyFiles = Directory.GetFiles(binFolder.FullName, "*.dll", SearchOption.TopDirectoryOnly).ToList();
-                            assemblies = new HashSet<Assembly>();
-                            foreach (var a in binAssemblyFiles)
-                            {
-                                try
-                                {
-                                    var assName = AssemblyName.GetAssemblyName(a);
-                                    var ass = Assembly.Load(assName);
-                                    assemblies.Add(ass);
-                                }
-                                catch (Exception e)
-                                {
-                                    if (e is SecurityException || e is BadImageFormatException)
-                                    {
-                                        //swallow these exceptions
-                                    }
-                                    else
-                                    {
-                                        throw;
-                                    }
-                                }
-                            }
-                        }
-
-                        //if for some reason they are still no assemblies, then use the AppDomain to load in already loaded assemblies.
-                        if (!assemblies.Any())
-                        {
-                            foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
-                            {
-                                assemblies.Add(a);
-                            }
-                        }
-
-                        //here we are trying to get the App_Code assembly
-                        var fileExtensions = new[] { ".cs", ".vb" }; //only vb and cs files are supported
-                        var appCodeFolder = new DirectoryInfo(IOHelper.MapPath(IOHelper.ResolveUrl("~/App_code")));
-                        //check if the folder exists and if there are any files in it with the supported file extensions
-                        if (appCodeFolder.Exists && (fileExtensions.Any(x => appCodeFolder.GetFiles("*" + x).Any())))
-                        {
-                            var appCodeAssembly = Assembly.Load("App_Code");
-                            if (!assemblies.Contains(appCodeAssembly)) // BuildManager will find App_Code already
-                                assemblies.Add(appCodeAssembly);
-                        }
-
-                        //now set the _allAssemblies
-                        _allAssemblies = new HashSet<Assembly>(assemblies);
-
+                        var appCodeAssembly = Assembly.Load("App_Code");
+                        if (!assemblies.Contains(appCodeAssembly)) // BuildManager will find App_Code already
+                            assemblies.Add(appCodeAssembly);
                     }
-                    catch (InvalidOperationException e)
+                    catch (FileNotFoundException ex)
                     {
-                        if (!(e.InnerException is SecurityException))
-                            throw;
-
-                        _binFolderAssemblies = _allAssemblies;
+                        //this will occur if it cannot load the assembly
+                        LogHelper.Error(typeof(TypeFinder), "Could not load assembly App_Code", ex);
                     }
-                }
-
-                return _allAssemblies;
-            }            
-        }
-
-        /// <summary>
-        /// Returns only assemblies found in the bin folder that have been loaded into the app domain.
-        /// </summary>
-        /// <returns></returns>
-        /// <remarks>
-        /// This will be used if we implement App_Plugins from Umbraco v5 but currently it is not used.
-        /// </remarks>
-        internal static HashSet<Assembly> GetBinAssemblies()
-        {
-
-            if (_binFolderAssemblies == null)
-            {
-                using (new WriteLock(Locker))
-                {
-                    var assemblies = GetAssembliesWithKnownExclusions().ToArray();
-                    var binFolder = Assembly.GetExecutingAssembly().GetAssemblyFile().Directory;
-                    var binAssemblyFiles = Directory.GetFiles(binFolder.FullName, "*.dll", SearchOption.TopDirectoryOnly).ToList();
-                    var domainAssemblyNames = binAssemblyFiles.Select(AssemblyName.GetAssemblyName);
-                    var safeDomainAssemblies = new HashSet<Assembly>();
-                    var binFolderAssemblies = new HashSet<Assembly>();
-
-                    foreach (var a in assemblies)
-                    {
-                        try
-                        {
-                            //do a test to see if its queryable in med trust
-                            var assemblyFile = a.GetAssemblyFile();
-                            safeDomainAssemblies.Add(a);
-                        }
-                        catch (SecurityException)
-                        {
-                            //we will just ignore this because this will fail 
-                            //in medium trust for system assemblies, we get an exception but we just want to continue until we get to 
-                            //an assembly that is ok.
-                        }
-                    }
-
-                    foreach (var assemblyName in domainAssemblyNames)
-                    {
-                        try
-                        {
-                            var foundAssembly =
-                                safeDomainAssemblies.FirstOrDefault(a => a.GetAssemblyFile() == assemblyName.GetAssemblyFile());
-                            if (foundAssembly != null)
-                            {
-                                binFolderAssemblies.Add(foundAssembly);
-                            }
-                        }
-                        catch (SecurityException)
-                        {
-                            //we will just ignore this because if we are trying to do a call to: 
-                            // AssemblyName.ReferenceMatchesDefinition(a.GetName(), assemblyName)))
-                            //in medium trust for system assemblies, we get an exception but we just want to continue until we get to 
-                            //an assembly that is ok.
-                        }
-                    }
-
-                    _binFolderAssemblies = new HashSet<Assembly>(binFolderAssemblies);
                 }
             }
-            return _binFolderAssemblies;
-        }
+            catch (InvalidOperationException e)
+            {
+                if (!(e.InnerException is SecurityException))
+                    throw;
+            }
+
+            return assemblies;
+        });
 
         /// <summary>
         /// Return a list of found local Assemblies excluding the known assemblies we don't want to scan 
@@ -212,20 +145,23 @@ namespace Umbraco.Core
         internal static HashSet<Assembly> GetAssembliesWithKnownExclusions(
             IEnumerable<Assembly> excludeFromResults = null)
         {
-            using (var lck = new UpgradeableReadLock(LocalFilteredAssemblyCacheLocker))
+            if (_localFilteredAssemblyCache == null)
             {
-                if (LocalFilteredAssemblyCache.Any()) return LocalFilteredAssemblyCache;
-
-                lck.UpgradeToWriteLock();
-
-                var assemblies = GetFilteredAssemblies(excludeFromResults, KnownAssemblyExclusionFilter);
-                foreach (var a in assemblies)
+                lock (LocalFilteredAssemblyCacheLocker)
                 {
-                    LocalFilteredAssemblyCache.Add(a);
+                    //double check
+                    if (_localFilteredAssemblyCache == null)
+                    {
+                        _localFilteredAssemblyCache = new HashSet<Assembly>();
+                        var assemblies = GetFilteredAssemblies(excludeFromResults, KnownAssemblyExclusionFilter);
+                        foreach (var a in assemblies)
+                        {
+                            _localFilteredAssemblyCache.Add(a);
+                        }
+                    }
                 }
-
-                return LocalFilteredAssemblyCache;
-            }            
+            }
+            return _localFilteredAssemblyCache;
         }
 
         /// <summary>
@@ -279,8 +215,8 @@ namespace Umbraco.Core
                     "SqlCE4Umbraco,",
                     "umbraco.datalayer,",
                     "umbraco.interfaces,",										
-					"umbraco.providers,",
-					"Umbraco.Web.UI,",
+					//"umbraco.providers,",
+					//"Umbraco.Web.UI,",
                     "umbraco.webservices",
                     "Lucene.",
                     "Examine,",
@@ -290,7 +226,18 @@ namespace Umbraco.Core
                     "HtmlAgilityPack.",
                     "TidyNet.",
                     "ICSharpCode.",
-                    "CookComputing."
+                    "CookComputing.",
+                    "AutoMapper,",
+                    "AutoMapper.",
+                    "AzureDirectory,",
+                    "itextsharp,",            
+                    "UrlRewritingNet.",
+                    "HtmlAgilityPack,",                 
+                    "MiniProfiler,",
+                    "Moq,",
+                    "nunit.framework,",
+                    "TidyNet,",
+                    "WebDriver,"
                 };
 
         /// <summary>
@@ -420,7 +367,7 @@ namespace Umbraco.Core
             if (TypeHelper.IsTypeAssignableFrom<Attribute>(attributeType) == false)
                 throw new ArgumentException("The type specified: " + attributeType + " is not an Attribute type");
 
-            var foundAssignableTypes = new HashSet<Type>();
+            var foundAttributedTypes = new HashSet<Type>();
 
             var assemblyList = assemblies.ToArray();
 
@@ -429,23 +376,88 @@ namespace Umbraco.Core
             //contain a class that has this attribute.
             var referencedAssemblies = TypeHelper.GetReferencedAssemblies(attributeType, assemblyList);
 
+            //get a list of non-referenced assemblies (we'll use this when we recurse below)
+            var otherAssemblies = assemblyList.Where(x => referencedAssemblies.Contains(x) == false).ToArray();
+
+            //loop through the referenced assemblies
             foreach (var a in referencedAssemblies)
             {
-                //get all types in the assembly that are sub types of the current type
-                var allTypes = GetTypesWithFormattedException(a).ToArray();
+                //get all types in this assembly
+                var allTypes = GetTypesWithFormattedException(a)
+                    .ToArray();
 
-                var types = allTypes.Where(t => TypeHelper.IsNonStaticClass(t)
-                                                && (onlyConcreteClasses == false || t.IsAbstract == false)
-                    //the type must have this attribute
-                                                && t.GetCustomAttributes(attributeType, false).Any());
-
-                foreach (var t in types)
+                var attributedTypes = new Type[] { };
+                try
                 {
-                    foundAssignableTypes.Add(t);
+                    //now filter the types based on the onlyConcreteClasses flag, not interfaces, not static classes but have
+                    //the specified attribute
+                    attributedTypes = allTypes
+                        .Where(t => (TypeHelper.IsNonStaticClass(t)
+                                     && (onlyConcreteClasses == false || t.IsAbstract == false))
+                            //the type must have this attribute
+                                     && t.GetCustomAttributes(attributeType, false).Any())
+                        .ToArray();
+                }
+                catch (TypeLoadException ex)
+                {
+                    LogHelper.Error(typeof(TypeFinder), string.Format("Could not query types on {0} assembly, this is most likely due to this assembly not being compatible with the current Umbraco version", a), ex);
+                    continue;
+                }
+
+                //add the types to our list to return
+                foreach (var t in attributedTypes)
+                {
+                    foundAttributedTypes.Add(t);
+                }
+
+                //get all attributes of the type being searched for
+                var allAttributeTypes = allTypes.Where(attributeType.IsAssignableFrom);
+
+                //now we need to include types that may be inheriting from sub classes of the attribute type being searched for
+                //so we will search in assemblies that reference those types too.
+                foreach (var subTypesInAssembly in allAttributeTypes.GroupBy(x => x.Assembly))
+                {
+
+                    //So that we are not scanning too much, we need to group the sub types:    
+                    // * if there is more than 1 sub type in the same assembly then we should only search on the 'lowest base' type.
+                    // * We should also not search for sub types if the type is sealed since you cannot inherit from a sealed class
+                    // * We should not search for sub types if the type is static since you cannot inherit from them.
+                    var subTypeList = subTypesInAssembly
+                        .Where(t => t.IsSealed == false && TypeHelper.IsStaticClass(t) == false)
+                        .ToArray();
+
+                    var baseClassAttempt = TypeHelper.GetLowestBaseType(subTypeList);
+
+                    //if there's a base class amongst the types then we'll only search for that type.
+                    //otherwise we'll have to search for all of them.
+                    var subTypesToSearch = new HashSet<Type>();
+                    if (baseClassAttempt.Success)
+                    {
+                        subTypesToSearch.Add(baseClassAttempt.Result);
+                    }
+                    else
+                    {
+                        foreach (var t in subTypeList)
+                        {
+                            subTypesToSearch.Add(t);
+                        }
+                    }
+
+                    foreach (var typeToSearch in subTypesToSearch)
+                    {
+                        //recursively find the types inheriting from this sub type in the other non-scanned assemblies.
+                        var foundTypes = FindClassesWithAttribute(typeToSearch, otherAssemblies, onlyConcreteClasses);
+
+                        foreach (var f in foundTypes)
+                        {
+                            foundAttributedTypes.Add(f);
+                        }
+                    }
+
                 }
             }
 
-            return foundAssignableTypes;
+            return foundAttributedTypes;
         }
 
 
@@ -517,19 +529,32 @@ namespace Umbraco.Core
                     .Where(assignTypeFrom.IsAssignableFrom)
                     .ToArray();
 
-                //now filter the types based on the onlyConcreteClasses flag, not interfaces, not static classes
-                var filteredTypes = allSubTypes
-                    .Where(t => (TypeHelper.IsNonStaticClass(t)
-                                 && (onlyConcreteClasses == false || t.IsAbstract == false)
-                                 && additionalFilter(t)))
-                    .ToArray();
+                var filteredTypes = new Type[] { };
+                try
+                {
+                    //now filter the types based on the onlyConcreteClasses flag, not interfaces, not static classes
+                    filteredTypes = allSubTypes
+                        .Where(t => (TypeHelper.IsNonStaticClass(t)
+                            //Do not include nested private classes - since we are in full trust now this will find those too!
+                                     && t.IsNestedPrivate == false
+                                     && (onlyConcreteClasses == false || t.IsAbstract == false)
+                            //Do not include classes that are flagged to hide from the type finder
+                                     && t.GetCustomAttribute<HideFromTypeFinderAttribute>() == null
+                                     && additionalFilter(t)))
+                        .ToArray();
+                }
+                catch (TypeLoadException ex)
+                {
+                    LogHelper.Error(typeof(TypeFinder), string.Format("Could not query types on {0} assembly, this is most likely due to this assembly not being compatible with the current Umbraco version", a), ex);
+                    continue;
+                }
 
                 //add the types to our list to return
                 foreach (var t in filteredTypes)
                 {
                     foundAssignableTypes.Add(t);
                 }
-                
+
                 //now we need to include types that may be inheriting from sub classes of the type being searched for
                 //so we will search in assemblies that reference those types too.
                 foreach (var subTypesInAssembly in allSubTypes.GroupBy(x => x.Assembly))
@@ -585,7 +610,16 @@ namespace Umbraco.Core
 
             try
             {
-                return a.GetExportedTypes();
+                //we need to detect if an assembly is partially trusted, if so we cannot go interrogating all of it's types
+                //only its exported types, otherwise we'll get exceptions.
+                if (a.GetCustomAttribute<AllowPartiallyTrustedCallersAttribute>() == null)
+                {
+                    return a.GetTypes();
+                }
+                else
+                {
+                    return a.GetExportedTypes();
+                }
             }
             catch (ReflectionTypeLoadException ex)
             {
@@ -601,7 +635,18 @@ namespace Umbraco.Core
 
         #endregion
 
-
+        //TODO: This isn't very elegant, and will have issues since the AppDomain.CurrentDomain
+        // doesn't actualy load in all assemblies, only the types that have been referenced so far.
+        // However, in a web context, the BuildManager will have executed which will force all assemblies
+        // to be loaded so it's fine for now.
+        public static Type GetTypeByName(string typeName)
+        {
+            var type = Type.GetType(typeName);
+            if (type != null) return type;
+            return AppDomain.CurrentDomain.GetAssemblies()
+                .Select(x => x.GetType(typeName))
+                .FirstOrDefault(x => x != null);
+        }
 
     }
 }

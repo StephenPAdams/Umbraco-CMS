@@ -2,7 +2,8 @@ using System;
 using System.Text;
 using System.Web;
 using Umbraco.Core;
-using umbraco;
+using Umbraco.Core.Configuration;
+using GlobalSettings = umbraco.GlobalSettings;
 
 namespace Umbraco.Web
 {
@@ -39,7 +40,6 @@ namespace Umbraco.Web
 
 		// adds the virtual directory if any
 		// see also VirtualPathUtility.ToAbsolute
-		// FIXME
 		public static string ToAbsolute(string url)
         {
 			//return ResolveUrl(url);
@@ -51,7 +51,8 @@ namespace Umbraco.Web
 		// see also VirtualPathUtility.ToAppRelative
         public static string ToAppRelative(string virtualPath)
         {
-            if (virtualPath.InvariantStartsWith(_appPathPrefix))
+            if (virtualPath.InvariantStartsWith(_appPathPrefix)
+                    && (virtualPath.Length == _appPathPrefix.Length || virtualPath[_appPathPrefix.Length] == '/'))
                 virtualPath = virtualPath.Substring(_appPathPrefix.Length);
 			if (virtualPath.Length == 0)
 				virtualPath = "/";
@@ -68,7 +69,7 @@ namespace Umbraco.Web
 			{
 				if (!GlobalSettings.UseDirectoryUrls)
 					path += ".aspx";
-				else if (UmbracoSettings.AddTrailingSlash)
+                else if (UmbracoConfig.For.UmbracoSettings().RequestHandler.AddTrailingSlash)
 					path += "/";
 			}
 

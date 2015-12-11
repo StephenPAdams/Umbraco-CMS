@@ -5,8 +5,6 @@ using System.Text;
 
 using Umbraco.Core;
 using Umbraco.Core.ObjectResolution;
-using Umbraco.Tests.TestHelpers;
-
 using NUnit.Framework;
 
 namespace Umbraco.Tests.Resolvers
@@ -17,7 +15,6 @@ namespace Umbraco.Tests.Resolvers
         [SetUp]
         public void Setup()
         {
-            TestHelper.SetupLog4NetForTests();
         }
 
         [TearDown]
@@ -87,14 +84,16 @@ namespace Umbraco.Tests.Resolvers
         [ExpectedException(typeof(InvalidOperationException))]
         public void ResolutionCanDetectIfNotFrozen()
         {
-            Resolution.EnsureIsFrozen(); // throws
+            using (Resolution.Reader()) // throws
+            {}
         }
 
         [Test]
         public void ResolutionCanEnsureIsFrozen()
         {
             Resolution.Freeze();
-            Resolution.EnsureIsFrozen();
+            using (Resolution.Reader()) // ok
+            {}
         }
 
         [Test]

@@ -1,17 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using SqlCE4Umbraco;
 using Umbraco.Core;
 using Umbraco.Core.IO;
-using log4net.Config;
 using umbraco.DataLayer;
 using GlobalSettings = umbraco.GlobalSettings;
 
 namespace Umbraco.Tests.TestHelpers
 {
-	/// <summary>
+    /// <summary>
 	/// Common helper properties and methods useful to testing
 	/// </summary>
 	public static class TestHelper
@@ -43,25 +44,6 @@ namespace Umbraco.Tests.TestHelpers
         }
 
 		/// <summary>
-		/// Initializes a new database
-		/// </summary>
-		public static void InitializeDatabase()
-		{
-            ConfigurationManager.AppSettings.Set(Core.Configuration.GlobalSettings.UmbracoConnectionName, @"datalayer=SQLCE4Umbraco.SqlCEHelper,SQLCE4Umbraco;data source=|DataDirectory|\UmbracoPetaPocoTests.sdf;Flush Interval=1;");
-
-			ClearDatabase();
-            
-            var databaseSettings = ConfigurationManager.ConnectionStrings[Core.Configuration.GlobalSettings.UmbracoConnectionName];
-            var dataHelper = DataLayerHelper.CreateSqlHelper(databaseSettings.ConnectionString, false);
-
-			var installer = dataHelper.Utility.CreateInstaller();
-			if (installer.CanConnect)
-			{
-				installer.Install();
-			}
-		}
-
-		/// <summary>
 		/// Gets the current assembly directory.
 		/// </summary>
 		/// <value>The assembly directory.</value>
@@ -89,14 +71,9 @@ namespace Umbraco.Tests.TestHelpers
 			return relativePath.Replace("~/", CurrentAssemblyDirectory + "/");
 		}
 
-		public static void SetupLog4NetForTests()
-		{
-			XmlConfigurator.Configure(new FileInfo(MapPathForTest("~/unit-test-log4net.config")));
-		}
-
-        public static void InitializeContentDirectories()
+	    public static void InitializeContentDirectories()
         {
-            CreateDirectories(new[] { SystemDirectories.Masterpages, SystemDirectories.MvcViews, SystemDirectories.Media });
+            CreateDirectories(new[] { SystemDirectories.Masterpages, SystemDirectories.MvcViews, SystemDirectories.Media, SystemDirectories.AppPlugins });
         }
 
 	    public static void CleanContentDirectories()
@@ -115,13 +92,30 @@ namespace Umbraco.Tests.TestHelpers
         }
 
 	    public static void CleanDirectories(string[] directories)
-        {
+	    {
+	        var preserves = new Dictionary<string, string[]>
+	        {
+	            { SystemDirectories.Masterpages, new[] {"dummy.txt"} },
+	            { SystemDirectories.MvcViews, new[] {"dummy.txt"} }
+	        };
             foreach (var directory in directories)
             {
                 var directoryInfo = new DirectoryInfo(IOHelper.MapPath(directory));
+                var preserve = preserves.ContainsKey(directory) ? preserves[directory] : null;
                 if (directoryInfo.Exists)
-                    directoryInfo.GetFiles().ForEach(x => x.Delete());
+                    directoryInfo.GetFiles().Where(x => preserve == null || preserve.Contains(x.Name) == false).ForEach(x => x.Delete());
             }
         }
+
+	    public static void CleanUmbracoSettingsConfig()
+        {
+            var currDir = new DirectoryInfo(CurrentAssemblyDirectory);
+
+            var umbracoSettingsFile = Path.Combine(currDir.Parent.Parent.FullName, "config", "umbracoSettings.config");
+            if (File.Exists(umbracoSettingsFile))
+                File.Delete(umbracoSettingsFile);
+        }
+
+
 	}
 }

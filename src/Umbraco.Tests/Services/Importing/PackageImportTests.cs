@@ -1,12 +1,16 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
 using NUnit.Framework;
+using Umbraco.Core.Models;
+using Umbraco.Core;
 using Umbraco.Core.Models.Rdbms;
-using umbraco.editorControls.MultiNodeTreePicker;
+using Umbraco.Tests.TestHelpers;
 
 namespace Umbraco.Tests.Services.Importing
 {
+    [DatabaseTestBehavior(DatabaseBehavior.NewDbFileAndSchemaPerTest)]
     [TestFixture, RequiresSTA]
     public class PackageImportTests : BaseServiceTest
     {
@@ -130,6 +134,24 @@ namespace Umbraco.Tests.Services.Importing
         }
 
         [Test]
+        public void PackagingService_Can_Import_Single_Template()
+        {
+            // Arrange
+            string strXml = ImportResources.StandardMvc_Package;
+            var xml = XElement.Parse(strXml);
+            var element = xml.Descendants("Templates").First().Element("Template");
+            var packagingService = ServiceContext.PackagingService;
+
+            // Act
+            var templates = packagingService.ImportTemplates(element);
+
+            // Assert
+            Assert.That(templates, Is.Not.Null);
+            Assert.That(templates.Any(), Is.True);
+            Assert.That(templates.Count(), Is.EqualTo(1));
+        }
+
+        [Test]
         public void PackagingService_Can_Import_StandardMvc_ContentTypes_Package_Xml()
         {
             // Arrange
@@ -190,6 +212,30 @@ namespace Umbraco.Tests.Services.Importing
         }
 
         [Test]
+        public void PackagingService_Can_Import_Fanoe_Starterkit_ContentTypes_And_Templates_Xml()
+        {
+            // Arrange
+            string strXml = ImportResources.Fanoe_Package;
+            var xml = XElement.Parse(strXml);
+            var dataTypeElement = xml.Descendants("DataTypes").First();
+            var templateElement = xml.Descendants("Templates").First();
+            var docTypeElement = xml.Descendants("DocumentTypes").First();
+
+            // Act
+            var dataTypeDefinitions = ServiceContext.PackagingService.ImportDataTypeDefinitions(dataTypeElement);
+            var templates = ServiceContext.PackagingService.ImportTemplates(templateElement);
+            var contentTypes = ServiceContext.PackagingService.ImportContentTypes(docTypeElement);
+            var numberOfDocTypes = (from doc in docTypeElement.Elements("DocumentType") select doc).Count();
+
+            //Assert - Re-Import contenttypes doesn't throw
+            Assert.DoesNotThrow(() => ServiceContext.PackagingService.ImportContentTypes(docTypeElement));
+            Assert.That(contentTypes.Count(), Is.EqualTo(numberOfDocTypes));
+            Assert.That(dataTypeDefinitions, Is.Not.Null);
+            Assert.That(dataTypeDefinitions.Any(), Is.True);
+            Assert.That(templates.Any(), Is.True);
+        }
+
+        [Test]
         public void PackagingService_Can_Import_Content_Package_Xml()
         {
             // Arrange
@@ -215,12 +261,22 @@ namespace Umbraco.Tests.Services.Importing
             Assert.That(contents.Any(), Is.True);
             Assert.That(contents.Count(), Is.EqualTo(numberOfDocs));
         }
+        
+        [Test]
+        public void PackagingService_Can_Import_CheckboxList_Content_Package_Xml_With_Property_Editor_Aliases()
+        {
+            AssertCheckBoxListTests(ImportResources.CheckboxList_Content_Package);
+        }
 
         [Test]
-        public void PackagingService_Can_Import_CheckboxList_Content_Package_Xml()
+        public void PackagingService_Can_Import_CheckboxList_Content_Package_Xml_With_Legacy_Property_Editor_Ids()
+        {
+            AssertCheckBoxListTests(ImportResources.CheckboxList_Content_Package_LegacyIds);
+        }
+
+        private void AssertCheckBoxListTests(string strXml)
         {
             // Arrange
-            string strXml = ImportResources.CheckboxList_Content_Package;
             var xml = XElement.Parse(strXml);
             var dataTypeElement = xml.Descendants("DataTypes").First();
             var docTypesElement = xml.Descendants("DocumentTypes").First();
@@ -232,7 +288,7 @@ namespace Umbraco.Tests.Services.Importing
             var contentTypes = packagingService.ImportContentTypes(docTypesElement);
             var contents = packagingService.ImportContent(element);
             var numberOfDocs = (from doc in element.Descendants()
-                                where (string) doc.Attribute("isDoc") == ""
+                                where (string)doc.Attribute("isDoc") == ""
                                 select doc).Count();
 
             var database = ApplicationContext.DatabaseContext.Database;
@@ -244,6 +300,7 @@ namespace Umbraco.Tests.Services.Importing
             // Assert
             Assert.That(dataTypeDefinitions, Is.Not.Null);
             Assert.That(dataTypeDefinitions.Any(), Is.True);
+            Assert.AreEqual(Constants.PropertyEditors.CheckBoxListAlias, dataTypeDefinitions.First().PropertyEditorAlias);
             Assert.That(contents, Is.Not.Null);
             Assert.That(contentTypes.Any(), Is.True);
             Assert.That(contents.Any(), Is.True);
@@ -356,6 +413,274 @@ namespace Umbraco.Tests.Services.Importing
             Assert.That(templatesAfterUpdate.Count(), Is.EqualTo(numberOfTemplates));
             Assert.That(allTemplates.Count(), Is.EqualTo(numberOfTemplates));
             Assert.That(allTemplates.First(x => x.Alias == "umbHomepage").Content, Contains.Substring("THIS HAS BEEN UPDATED!"));
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_DictionaryItems()
+        {
+            // Arrange
+            const string expectedEnglishParentValue = "ParentValue";
+            const string expectedNorwegianParentValue = "ForelderVerdi";
+            const string expectedEnglishChildValue = "ChildValue";
+            const string expectedNorwegianChildValue = "BarnVerdi";
+
+            var newPackageXml = XElement.Parse(ImportResources.Dictionary_Package);
+            var dictionaryItemsElement = newPackageXml.Elements("DictionaryItems").First();
+
+            AddLanguages();
+
+            // Act
+            ServiceContext.PackagingService.ImportDictionaryItems(dictionaryItemsElement);
+
+            // Assert
+            AssertDictionaryItem("Parent", expectedEnglishParentValue, "en-GB");
+            AssertDictionaryItem("Parent", expectedNorwegianParentValue, "nb-NO");
+            AssertDictionaryItem("Child", expectedEnglishChildValue, "en-GB");
+            AssertDictionaryItem("Child", expectedNorwegianChildValue, "nb-NO");
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_Nested_DictionaryItems()
+        {
+            // Arrange
+            const string parentKey = "Parent";
+            const string childKey = "Child";
+
+            var newPackageXml = XElement.Parse(ImportResources.Dictionary_Package);
+            var dictionaryItemsElement = newPackageXml.Elements("DictionaryItems").First();
+
+            AddLanguages();
+
+            // Act
+            var dictionaryItems = ServiceContext.PackagingService.ImportDictionaryItems(dictionaryItemsElement);
+
+            // Assert
+            Assert.That(ServiceContext.LocalizationService.DictionaryItemExists(parentKey), "DictionaryItem parentKey does not exist");
+            Assert.That(ServiceContext.LocalizationService.DictionaryItemExists(childKey), "DictionaryItem childKey does not exist");
+
+            var parentDictionaryItem = ServiceContext.LocalizationService.GetDictionaryItemByKey(parentKey);
+            var childDictionaryItem = ServiceContext.LocalizationService.GetDictionaryItemByKey(childKey);
+            
+            Assert.That(parentDictionaryItem.ParentId, Is.Not.EqualTo(childDictionaryItem.ParentId));
+            Assert.That(childDictionaryItem.ParentId, Is.EqualTo(parentDictionaryItem.Key));
+        }
+
+        [Test]
+        public void PackagingService_WhenExistingDictionaryKey_ImportsNewChildren()
+        {
+            // Arrange
+            const string expectedEnglishParentValue = "ExistingParentValue";
+            const string expectedNorwegianParentValue = "EksisterendeForelderVerdi";
+            const string expectedEnglishChildValue = "ChildValue";
+            const string expectedNorwegianChildValue = "BarnVerdi";
+
+            var newPackageXml = XElement.Parse(ImportResources.Dictionary_Package);
+            var dictionaryItemsElement = newPackageXml.Elements("DictionaryItems").First();
+
+            AddLanguages();
+            AddExistingEnglishAndNorwegianParentDictionaryItem(expectedEnglishParentValue, expectedNorwegianParentValue);
+
+            // Act
+            ServiceContext.PackagingService.ImportDictionaryItems(dictionaryItemsElement);
+
+            // Assert
+            AssertDictionaryItem("Parent", expectedEnglishParentValue, "en-GB");
+            AssertDictionaryItem("Parent", expectedNorwegianParentValue, "nb-NO");
+            AssertDictionaryItem("Child", expectedEnglishChildValue, "en-GB");
+            AssertDictionaryItem("Child", expectedNorwegianChildValue, "nb-NO");
+        }
+
+        [Test]
+        public void PackagingService_WhenExistingDictionaryKey_OnlyAddsNewLanguages()
+        {
+            // Arrange
+            const string expectedEnglishParentValue = "ExistingParentValue";
+            const string expectedNorwegianParentValue = "ForelderVerdi";
+            const string expectedEnglishChildValue = "ChildValue";
+            const string expectedNorwegianChildValue = "BarnVerdi";
+
+            var newPackageXml = XElement.Parse(ImportResources.Dictionary_Package);
+            var dictionaryItemsElement = newPackageXml.Elements("DictionaryItems").First();
+
+            AddLanguages();
+            AddExistingEnglishParentDictionaryItem(expectedEnglishParentValue);
+
+            // Act
+            ServiceContext.PackagingService.ImportDictionaryItems(dictionaryItemsElement);
+
+            // Assert
+            AssertDictionaryItem("Parent", expectedEnglishParentValue, "en-GB");
+            AssertDictionaryItem("Parent", expectedNorwegianParentValue, "nb-NO");
+            AssertDictionaryItem("Child", expectedEnglishChildValue, "en-GB");
+            AssertDictionaryItem("Child", expectedNorwegianChildValue, "nb-NO");
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_Languages()
+        {
+            // Arrange
+            var newPackageXml = XElement.Parse(ImportResources.Dictionary_Package);
+            var LanguageItemsElement = newPackageXml.Elements("Languages").First();
+
+            // Act
+            var languages = ServiceContext.PackagingService.ImportLanguages(LanguageItemsElement);
+            var allLanguages = ServiceContext.LocalizationService.GetAllLanguages();
+
+            // Assert
+            Assert.That(languages.Any(x => x.HasIdentity == false), Is.False);
+            foreach (var language in languages)
+            {
+                Assert.That(allLanguages.Any(x => x.IsoCode == language.IsoCode), Is.True);
+            }
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_Macros()
+        {
+            // Arrange
+            string strXml = ImportResources.uBlogsy_Package;
+            var xml = XElement.Parse(strXml);
+            var macrosElement = xml.Descendants("Macros").First();
+            var packagingService = ServiceContext.PackagingService;
+
+            // Act
+            var macros = packagingService.ImportMacros(macrosElement).ToList();
+
+            // Assert
+            Assert.That(macros.Any(), Is.True);
+
+            var allMacros = ServiceContext.MacroService.GetAll().ToList();
+            foreach (var macro in macros)
+            {
+                Assert.That(allMacros.Any(x => x.Alias == macro.Alias), Is.True);
+            }
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_Macros_With_Properties()
+        {
+            // Arrange
+            string strXml = ImportResources.XsltSearch_Package;
+            var xml = XElement.Parse(strXml);
+            var macrosElement = xml.Descendants("Macros").First();
+            var packagingService = ServiceContext.PackagingService;
+
+            // Act
+            var macros = packagingService.ImportMacros(macrosElement).ToList();
+
+            // Assert
+            Assert.That(macros.Any(), Is.True);
+            Assert.That(macros.First().Properties.Any(), Is.True);
+
+            var allMacros = ServiceContext.MacroService.GetAll().ToList();
+            foreach (var macro in macros)
+            {
+                Assert.That(allMacros.Any(x => x.Alias == macro.Alias), Is.True);
+            }
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_Package_With_Compositions()
+        {
+            // Arrange
+            string strXml = ImportResources.CompositionsTestPackage;
+            var xml = XElement.Parse(strXml);
+            var templateElement = xml.Descendants("Templates").First();
+            var docTypeElement = xml.Descendants("DocumentTypes").First();
+            var packagingService = ServiceContext.PackagingService;
+
+            // Act
+            var templates = packagingService.ImportTemplates(templateElement);
+            var contentTypes = packagingService.ImportContentTypes(docTypeElement);
+            var numberOfDocTypes = (from doc in docTypeElement.Elements("DocumentType") select doc).Count();
+
+            // Assert
+            Assert.That(contentTypes, Is.Not.Null);
+            Assert.That(contentTypes.Any(), Is.True);
+            Assert.That(contentTypes.Count(), Is.EqualTo(numberOfDocTypes));
+            Assert.That(contentTypes.Count(x => x.ParentId == -1), Is.EqualTo(3));
+
+            var textpage = contentTypes.First(x => x.Alias.Equals("umbTextyPage"));
+            Assert.That(textpage.ParentId, Is.Not.EqualTo(-1));
+            Assert.That(textpage.ContentTypeComposition.Count(), Is.EqualTo(3));
+            Assert.That(textpage.ContentTypeCompositionExists("umbMaster"), Is.True);
+            Assert.That(textpage.ContentTypeCompositionExists("Meta"), Is.True);
+            Assert.That(textpage.ContentTypeCompositionExists("Seo"), Is.True);
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_Package_With_Compositions_Ordered()
+        {
+            // Arrange
+            string strXml = ImportResources.CompositionsTestPackage_Random;
+            var xml = XElement.Parse(strXml);
+            var docTypeElement = xml.Descendants("DocumentTypes").First();
+            var packagingService = ServiceContext.PackagingService;
+
+            // Act
+            var contentTypes = packagingService.ImportContentTypes(docTypeElement);
+            var numberOfDocTypes = (from doc in docTypeElement.Elements("DocumentType") select doc).Count();
+
+            // Assert
+            Assert.That(contentTypes, Is.Not.Null);
+            Assert.That(contentTypes.Any(), Is.True);
+            Assert.That(contentTypes.Count(), Is.EqualTo(numberOfDocTypes));
+
+            var testContentType = contentTypes.First(x => x.Alias.Equals("CompositeTest"));
+            Assert.That(testContentType.ContentTypeComposition.Count(), Is.EqualTo(3));
+            Assert.That(testContentType.ContentTypeCompositionExists("Content"), Is.True);
+            Assert.That(testContentType.ContentTypeCompositionExists("Meta"), Is.True);
+            Assert.That(testContentType.ContentTypeCompositionExists("Seo"), Is.True);
+        }
+
+        private void AddLanguages()
+        {
+            var norwegian = new Core.Models.Language("nb-NO");
+            var english = new Core.Models.Language("en-GB");
+            ServiceContext.LocalizationService.Save(norwegian, 0);
+            ServiceContext.LocalizationService.Save(english, 0);
+        }
+
+        private void AssertDictionaryItem(string key, string expectedValue, string cultureCode)
+        {
+            Assert.That(ServiceContext.LocalizationService.DictionaryItemExists(key), "DictionaryItem key does not exist");
+            var dictionaryItem = ServiceContext.LocalizationService.GetDictionaryItemByKey(key);
+            var translation = dictionaryItem.Translations.SingleOrDefault(i => i.Language.IsoCode == cultureCode);
+            Assert.IsNotNull(translation, "Translation to {0} was not added", cultureCode);
+            var value = translation.Value;
+            Assert.That(value, Is.EqualTo(expectedValue), "Translation value was not set");
+        }
+
+        private void AddExistingEnglishParentDictionaryItem(string expectedEnglishParentValue)
+        {
+            var languages = ServiceContext.LocalizationService.GetAllLanguages().ToList();
+            var englishLanguage = languages.Single(l => l.IsoCode == "en-GB");
+            ServiceContext.LocalizationService.Save(
+                new DictionaryItem("Parent")
+                {
+                    Translations = new List<IDictionaryTranslation>
+                                    {
+                                            new DictionaryTranslation(englishLanguage, expectedEnglishParentValue),
+                                    }
+                }
+            );
+        }
+
+        private void AddExistingEnglishAndNorwegianParentDictionaryItem(string expectedEnglishParentValue, string expectedNorwegianParentValue)
+        {
+            var languages = ServiceContext.LocalizationService.GetAllLanguages().ToList();
+            var englishLanguage = languages.Single(l => l.IsoCode == "en-GB");
+            var norwegianLanguage = languages.Single(l => l.IsoCode == "nb-NO");
+            ServiceContext.LocalizationService.Save(
+                new DictionaryItem("Parent")
+                {
+                    Translations = new List<IDictionaryTranslation>
+                                    {
+                                            new DictionaryTranslation(englishLanguage, expectedEnglishParentValue),
+                                            new DictionaryTranslation(norwegianLanguage, expectedNorwegianParentValue),
+                                    }
+                }
+            );
         }
     }
 }

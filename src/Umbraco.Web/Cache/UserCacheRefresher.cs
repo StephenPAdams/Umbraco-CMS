@@ -1,6 +1,9 @@
 ﻿using System;
 using Umbraco.Core;
 using Umbraco.Core.Cache;
+using Umbraco.Core.Models.Membership;
+
+using Umbraco.Core.Persistence.Repositories;
 using umbraco.interfaces;
 
 namespace Umbraco.Web.Cache
@@ -27,24 +30,29 @@ namespace Umbraco.Web.Cache
 
         public override void RefreshAll()
         {
-            ApplicationContext.Current.ApplicationCache.ClearCacheByKeySearch(CacheKeys.UserCacheKey);
-            ApplicationContext.Current.ApplicationCache.ClearCacheByKeySearch(CacheKeys.UserPermissionsCacheKey);
-            ApplicationContext.Current.ApplicationCache.ClearCacheByKeySearch(CacheKeys.UserContextCacheKey);
+            ApplicationContext.Current.ApplicationCache.RuntimeCache.ClearCacheObjectTypes<IUser>();
+            ApplicationContext.Current.ApplicationCache.RuntimeCache.ClearCacheByKeySearch(CacheKeys.UserPermissionsCacheKey);
+            ApplicationContext.Current.ApplicationCache.RuntimeCache.ClearCacheByKeySearch(CacheKeys.UserContextCacheKey);
+            base.RefreshAll();
         }
 
         public override void Refresh(int id)
         {
             Remove(id);
+            base.Refresh(id);
         }
 
         public override void Remove(int id)
         {
-            ApplicationContext.Current.ApplicationCache.ClearCacheItem(string.Format("{0}{1}", CacheKeys.UserCacheKey, id));
-            ApplicationContext.Current.ApplicationCache.ClearCacheItem(string.Format("{0}{1}", CacheKeys.UserPermissionsCacheKey, id));
+            ApplicationContext.Current.ApplicationCache.RuntimeCache.ClearCacheItem(RepositoryBase.GetCacheIdKey<IUser>(id));
+
+            ApplicationContext.Current.ApplicationCache.RuntimeCache.ClearCacheItem(string.Format("{0}{1}", CacheKeys.UserPermissionsCacheKey, id));
 
             //we need to clear all UserContextCacheKey since we cannot invalidate based on ID since the cache is done so based
             //on the current contextId stored in the database
-            ApplicationContext.Current.ApplicationCache.ClearCacheByKeySearch(CacheKeys.UserContextCacheKey);
+            ApplicationContext.Current.ApplicationCache.RuntimeCache.ClearCacheByKeySearch(CacheKeys.UserContextCacheKey);
+
+            base.Remove(id);
         }
 
     }

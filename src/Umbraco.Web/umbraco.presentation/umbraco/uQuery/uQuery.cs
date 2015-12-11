@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Web;
 using System.Xml;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.Logging;
 using Umbraco.Web;
 using umbraco;
@@ -13,7 +14,7 @@ using umbraco.DataLayer;
 namespace umbraco
 {
 	/// <summary>
-	/// uQuery - static helper methods, previously this class was UmbracoHelper
+	/// uQuery - static helper methods
 	/// </summary>
 	public static partial class uQuery
 	{
@@ -106,7 +107,7 @@ namespace umbraco
 
 			try
 			{
-				isLegacyXmlSchema = UmbracoSettings.UseLegacyXmlSchema;
+				isLegacyXmlSchema = UmbracoConfig.For.UmbracoSettings().Content.UseLegacyXmlSchema;
 			}
 			catch (MissingMethodException)
 			{
@@ -120,7 +121,7 @@ namespace umbraco
 		/// <summary>
 		/// build a string array from a csv
 		/// </summary>
-		/// <param name="csv">string of comma seperated values</param>
+		/// <param name="csv">string of comma separated values</param>
 		/// <returns>An array of node ids as string.</returns>
 		public static string[] GetCsvIds(string csv)
 		{

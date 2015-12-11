@@ -11,7 +11,7 @@ using Umbraco.Core;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Rdbms;
 using Umbraco.Core.Persistence;
-using Umbraco.Core.Persistence.Caching;
+
 using Umbraco.Core.Persistence.Repositories;
 using Umbraco.Core.Persistence.SqlSyntax;
 using Umbraco.Core.Persistence.UnitOfWork;
@@ -26,6 +26,7 @@ namespace Umbraco.Tests.Services
     /// This is more of an integration test as it involves multiple layers
     /// as well as configuration.
     /// </summary>
+    [DatabaseTestBehavior(DatabaseBehavior.NewDbFileAndSchemaPerTest)]
     [TestFixture, RequiresSTA]
     [NUnit.Framework.Ignore("These should not be run by the server, only directly as they are only benchmark tests")]
     public class PerformanceTests : BaseDatabaseFactoryTest
@@ -46,13 +47,6 @@ namespace Umbraco.Tests.Services
             return "System.Data.SqlClient";
         }
 
-        /// <summary>
-        /// new schema per test
-        /// </summary>
-        protected override DatabaseBehavior DatabaseTestBehavior
-        {
-            get { return DatabaseBehavior.NewSchemaPerTest; }
-        }
 
         /// <summary>
         /// don't create anything, we're testing against our own server
@@ -81,8 +75,6 @@ namespace Umbraco.Tests.Services
                 //do this 10x!
                 for (var i = 0; i < 10; i++)
                 {
-                    //clear the cache to make this test valid
-                    RuntimeCacheProvider.Current.Clear();
 
                     var published = new List<IContent>();
                     //get all content items that are published
@@ -103,8 +95,6 @@ namespace Umbraco.Tests.Services
                 //do this 10x!
                 for (var i = 0; i < 10; i++)
                 {
-                    //clear the cache to make this test valid
-                    RuntimeCacheProvider.Current.Clear();
 
                     //get all content items that are published
                     var published = contentSvc.GetAllPublished();
@@ -128,8 +118,7 @@ namespace Umbraco.Tests.Services
                 //do this 10x!
                 for (var i = 0; i < 10; i++)
                 {
-                    //clear the cache to make this test valid
-                    RuntimeCacheProvider.Current.Clear();
+                    
                     //get all content items that are published of this type
                     var published = contentSvc.GetContentOfContentType(contentTypeId).Where(content => content.Published);
                     Assert.AreEqual(countOfPublished, published.Count(x => x.ContentTypeId == contentTypeId));
@@ -142,8 +131,6 @@ namespace Umbraco.Tests.Services
                 //do this 10x!
                 for (var i = 0; i < 10; i++)
                 {
-                    //clear the cache to make this test valid
-                    RuntimeCacheProvider.Current.Clear();
                     //get all content items that are published of this type
                     var published = contentSvc.GetPublishedContentOfContentType(contentTypeId);
                     Assert.AreEqual(countOfPublished, published.Count(x => x.ContentTypeId == contentTypeId));
@@ -229,6 +216,8 @@ namespace Umbraco.Tests.Services
 
 
                         DatabaseContext.Database.BulkInsertRecords(xmlItems, tr);
+
+                        tr.Complete();
                     }
                 }
             }
@@ -243,12 +232,7 @@ namespace Umbraco.Tests.Services
             ServiceContext.ContentTypeService.Save(contentType1);
             contentType1.AllowedContentTypes = new List<ContentTypeSort>
                 {
-                    new ContentTypeSort
-                        {
-                            Alias = contentType1.Alias,
-                            Id = new Lazy<int>(() => contentType1.Id),
-                            SortOrder = 0
-                        }
+                    new ContentTypeSort(new Lazy<int>(() => contentType1.Id), 0, contentType1.Alias)
                 };
             var result = new List<IContent>();
             ServiceContext.ContentTypeService.Save(contentType1);            

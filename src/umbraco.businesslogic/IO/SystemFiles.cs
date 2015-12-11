@@ -12,7 +12,7 @@ namespace umbraco.IO
 	[Obsolete("Use Umbraco.Core.UI.SystemFiles instead")]
 	public class SystemFiles
 	{
-
+        [Obsolete("This file is no longer used and should not be accessed!")]
 		public static string AccessXml
 		{
 			get { return Umbraco.Core.IO.SystemFiles.AccessXml; }
@@ -38,21 +38,6 @@ namespace umbraco.IO
 			get { return Umbraco.Core.IO.SystemFiles.DashboardConfig; }
 		}
 
-		public static string XsltextensionsConfig
-		{
-			get { return Umbraco.Core.IO.SystemFiles.XsltextensionsConfig; }
-		}
-
-		public static string RestextensionsConfig
-		{
-			get { return Umbraco.Core.IO.SystemFiles.RestextensionsConfig; }
-		}
-
-
-		public static string SkinningXml
-		{
-			get { return Umbraco.Core.IO.SystemFiles.SkinningXml; }
-		}
 
 		public static string NotFoundhandlersConfig
 		{
@@ -71,7 +56,7 @@ namespace umbraco.IO
 
 		public static bool ContentCacheXmlIsEphemeral
 		{
-			get { return Umbraco.Core.IO.SystemFiles.ContentCacheXmlIsEphemeral; }
+			get { return Umbraco.Core.IO.SystemFiles.ContentCacheXmlStoredInCodeGen; }
 		}
 	}
 }

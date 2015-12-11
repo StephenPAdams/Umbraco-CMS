@@ -3,22 +3,15 @@ using System.Collections.Generic;
 using System.Linq;
 using Umbraco.Core.Persistence.DatabaseAnnotations;
 using Umbraco.Core.Persistence.DatabaseModelDefinitions;
+using Umbraco.Core.Persistence.Querying;
 
 namespace Umbraco.Core.Persistence.SqlSyntax
 {
     /// <summary>
-    /// Static class that provides simple access to the Sql CE SqlSyntax Provider
-    /// </summary>
-    internal static class SqlCeSyntax
-    {
-        public static ISqlSyntaxProvider Provider { get { return new SqlCeSyntaxProvider(); } }
-    }
-
-    /// <summary>
     /// Represents an SqlSyntaxProvider for Sql Ce
     /// </summary>
     [SqlSyntaxProviderAttribute("System.Data.SqlServerCe.4.0")]
-    public class SqlCeSyntaxProvider : SqlSyntaxProviderBase<SqlCeSyntaxProvider>
+    public class SqlCeSyntaxProvider : MicrosoftSqlSyntaxProviderBase<SqlCeSyntaxProvider>
     {
         public SqlCeSyntaxProvider()
         {
@@ -67,20 +60,22 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             return indexType;
         }
 
-        public override string GetQuotedTableName(string tableName)
+        [Obsolete("Use the overload with the parameter index instead")]
+        public override string GetStringColumnEqualComparison(string column, string value, TextColumnType columnType)
         {
-            return string.Format("[{0}]", tableName);
+            switch (columnType)
+            {
+                case TextColumnType.NVarchar:
+                    return base.GetStringColumnEqualComparison(column, value, columnType);
+                case TextColumnType.NText:
+                    //MSSQL doesn't allow for = comparison with NText columns but allows this syntax
+                    return string.Format("{0} LIKE '{1}'", column, value);
+                default:
+                    throw new ArgumentOutOfRangeException("columnType");
+            }   
         }
 
-        public override string GetQuotedColumnName(string columnName)
-        {
-            return string.Format("[{0}]", columnName);
-        }
-
-        public override string GetQuotedName(string name)
-        {
-            return string.Format("[{0}]", name);
-        }
+        
 
         public override string FormatColumnRename(string tableName, string oldName, string newName)
         {
@@ -163,6 +158,18 @@ namespace Umbraco.Core.Persistence.SqlSyntax
                                                                indexItem.INDEX_NAME))).ToList();
         }
 
+        public override IEnumerable<Tuple<string, string, string, bool>> GetDefinedIndexes(Database db)
+        {
+            var items =
+                db.Fetch<dynamic>(
+                    @"SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME, [UNIQUE] FROM INFORMATION_SCHEMA.INDEXES 
+WHERE INDEX_NAME NOT LIKE 'PK_%'
+ORDER BY TABLE_NAME, INDEX_NAME");
+            return
+                items.Select(
+                    item => new Tuple<string, string, string, bool>(item.TABLE_NAME, item.INDEX_NAME, item.COLUMN_NAME, item.UNIQUE));
+        }
+
         public override bool DoesTableExist(Database db, string tableName)
         {
             var result =
@@ -190,13 +197,13 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             switch (systemMethod)
             {
                 case SystemMethods.NewGuid:
-                    return "NEWID()";
-                case SystemMethods.NewSequentialId:
-                    return "NEWSEQUENTIALID()";
+                    return "NEWID()";                
                 case SystemMethods.CurrentDateTime:
                     return "GETDATE()";
-                case SystemMethods.CurrentUTCDateTime:
-                    return "GETUTCDATE()";
+                //case SystemMethods.NewSequentialId:
+                //    return "NEWSEQUENTIALID()";
+                //case SystemMethods.CurrentUTCDateTime:
+                //    return "GETUTCDATE()";
             }
 
             return null;
@@ -210,10 +217,10 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             }
         }
 
-        public override string AddColumn { get { return "ALTER TABLE {0} ADD {1}"; } }
+        
 
         public override string DropIndex { get { return "DROP INDEX {1}.{0}"; } }
 
-        public override string RenameTable { get { return "sp_rename '{0}', '{1}'"; } }
+        
     }
 }

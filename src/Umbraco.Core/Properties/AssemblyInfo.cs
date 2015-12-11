@@ -20,12 +20,9 @@ using System.Security.Permissions;
 // The following GUID is for the ID of the typelib if this project is exposed to COM
 [assembly: Guid("130a6b5c-50e7-4df3-a0dd-e9e7eb0b7c5c")]
 
-//[assembly: SecurityRules(SecurityRuleSet.Level2, SkipVerificationInFullTrust = true)]
-//[assembly: AllowPartiallyTrustedCallers]
-//[assembly: SecurityTransparent]
-
 [assembly: InternalsVisibleTo("umbraco")]
 [assembly: InternalsVisibleTo("Umbraco.Tests")]
+[assembly: InternalsVisibleTo("Umbraco.Extensions")]
 [assembly: InternalsVisibleTo("businesslogic")]
 [assembly: InternalsVisibleTo("cms")]
 [assembly: InternalsVisibleTo("umbraco.editorControls")]
@@ -39,8 +36,12 @@ using System.Security.Permissions;
 [assembly: InternalsVisibleTo("Umbraco.Web")]
 [assembly: InternalsVisibleTo("Umbraco.Web.UI")]
 [assembly: InternalsVisibleTo("UmbracoExamine")]
-[assembly: InternalsVisibleTo("Umbraco.Courier.Persistence")]
 
 [assembly: InternalsVisibleTo("Concorde.Sync")]
-[assembly: InternalsVisibleTo("Umbraco.Belle")]
 [assembly: InternalsVisibleTo("Umbraco.VisualStudio")]
+[assembly: InternalsVisibleTo("Umbraco.Courier.Core")]
+[assembly: InternalsVisibleTo("Umbraco.Courier.Persistence")]
+[assembly: InternalsVisibleTo("umbraco.providers")]
+
+//allow this to be mocked in our unit tests
+[assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]

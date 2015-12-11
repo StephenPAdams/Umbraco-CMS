@@ -37,7 +37,7 @@
     </SccProvider>
     <OldToolsVersion>3.5</OldToolsVersion>
     <IsWebBootstrapper>true</IsWebBootstrapper>
-    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <PublishUrl>http://localhost/umbraco.editorControls/</PublishUrl>
     <Install>true</Install>
     <InstallFrom>Web</InstallFrom>
@@ -79,6 +79,7 @@
     <DebugType>full</DebugType>
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <OutputPath>bin\Release\</OutputPath>
@@ -89,7 +90,7 @@
     </ConfigurationOverrideFile>
     <DefineConstants>TRACE</DefineConstants>
     <DocumentationFile>bin\Release\umbraco.editorControls.xml</DocumentationFile>
-    <DebugSymbols>false</DebugSymbols>
+    <DebugSymbols>true</DebugSymbols>
     <FileAlignment>4096</FileAlignment>
     <NoStdLib>false</NoStdLib>
     <NoWarn>
@@ -99,9 +100,10 @@
     <RemoveIntegerChecks>false</RemoveIntegerChecks>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <WarningLevel>4</WarningLevel>
-    <DebugType>none</DebugType>
+    <DebugType>pdbonly</DebugType>
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Umbraco.Core\Umbraco.Core.csproj">
@@ -112,9 +114,9 @@
       <Project>{651E1350-91B6-44B7-BD60-7207006D7003}</Project>
       <Name>Umbraco.Web</Name>
     </ProjectReference>
-    <Reference Include="ClientDependency.Core, Version=1.7.0.4, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\packages\ClientDependency.1.7.0.4\lib\ClientDependency.Core.dll</HintPath>
+    <Reference Include="ClientDependency.Core, Version=1.8.4.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\ClientDependency.1.8.4\lib\net45\ClientDependency.Core.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="System">
       <Name>System</Name>
@@ -167,10 +169,6 @@
       <Name>umbraco.interfaces</Name>
       <Project>{511F6D8D-7717-440A-9A57-A507E9A8B27F}</Project>
       <Package>{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</Package>
-    </ProjectReference>
-    <ProjectReference Include="..\umbraco.macroRenderings\umbraco.macroRenderings.csproj">
-      <Project>{52AB8F1F-FB76-4E8C-885F-0747B6CE71EC}</Project>
-      <Name>umbraco.macroRenderings</Name>
     </ProjectReference>
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
@@ -328,6 +326,7 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="PrevalueEditorExtensions.cs" />
+    <Compile Include="PropertyTypePicker.cs" />
     <Compile Include="radiobuttonlist\radiobox.cs">
       <SubType>Code</SubType>
     </Compile>
@@ -385,8 +384,6 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="tinymce\tinyMCEConfiguration.cs" />
-    <Compile Include="tinymce\TinyMCEDataType.cs" />
-    <Compile Include="tinymce\TinyMCELegacyControl.cs" />
     <Compile Include="tinymce\tinyMCEImageHelper.cs" />
     <Compile Include="tinymce\tinyMCEPreValueConfigurator.cs" />
     <Compile Include="userControlWrapper\SerializationHelper.cs" />
@@ -440,7 +437,9 @@
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>MediaChooserScripts.Designer.cs</LastGenOutput>
     </EmbeddedResource>
-    <EmbeddedResource Include="MultiNodeTreePicker\MNTPResources.resx" />
+    <EmbeddedResource Include="MultiNodeTreePicker\MNTPResources.resx">
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
     <EmbeddedResource Include="textfield\textFieldDataEditor.resx">
       <DependentUpon>textFieldDataEditor.cs</DependentUpon>
       <SubType>Designer</SubType>
@@ -486,6 +485,7 @@
     <EmbeddedResource Include="SettingControls\js\Values.js" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="app.config" />
     <None Include="packages.config" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />

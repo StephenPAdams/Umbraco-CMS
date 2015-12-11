@@ -6,20 +6,23 @@ using System.Xml;
 using Umbraco.Core;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.EntityBase;
-using Umbraco.Core.Persistence.Caching;
+using Umbraco.Core.Persistence;
+
 using umbraco.cms.businesslogic.web;
 using umbraco.DataLayer;
 using umbraco.BusinessLogic;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.ComponentModel;
-using umbraco.IO;
+using Umbraco.Core.IO;
 using System.Collections;
 using umbraco.cms.businesslogic.task;
 using umbraco.cms.businesslogic.workflow;
 using umbraco.cms.businesslogic.Tags;
 using File = System.IO.File;
 using Media = umbraco.cms.businesslogic.media.Media;
+using Tag = umbraco.cms.businesslogic.Tags.Tag;
+using Notification = umbraco.cms.businesslogic.workflow.Notification;
 using Task = umbraco.cms.businesslogic.task.Task;
 
 namespace umbraco.cms.businesslogic
@@ -51,13 +54,13 @@ namespace umbraco.cms.businesslogic
         private bool _hasChildrenInitialized;
         private string m_image = "default.png";
         private bool? _isTrashed = null;
-        private IUmbracoEntity _entity;
+        protected IUmbracoEntity Entity;
 
         #endregion
 
         #region Private static
 
-        private static readonly string DefaultIconCssFile = IOHelper.MapPath(SystemDirectories.Umbraco_client + "/Tree/treeIcons.css");
+        private static readonly string DefaultIconCssFile = IOHelper.MapPath(SystemDirectories.UmbracoClient + "/Tree/treeIcons.css");
         private static readonly List<string> InternalDefaultIconClasses = new List<string>();
         private static readonly ReaderWriterLockSlim Locker = new ReaderWriterLockSlim();
 
@@ -342,9 +345,15 @@ namespace umbraco.cms.businesslogic
         /// Gets the SQL helper.
         /// </summary>
         /// <value>The SQL helper.</value>
+        [Obsolete("Obsolete, For querying the database use the new UmbracoDatabase object ApplicationContext.Current.DatabaseContext.Database", false)]
         protected static ISqlHelper SqlHelper
         {
             get { return Application.SqlHelper; }
+        }
+
+        internal static UmbracoDatabase Database
+        {
+            get { return ApplicationContext.Current.DatabaseContext.Database; }
         }
         #endregion
 
@@ -367,6 +376,19 @@ namespace umbraco.cms.businesslogic
         {
             _id = Id;
             setupNode();
+        }
+
+        /// <summary>
+        /// This is purely for a hackity hack hack hack in order to make the new Document(id, version) constructor work because
+        /// the Version property needs to be set on the object before setupNode is called, otherwise it never works! this allows
+        /// inheritors to set default data before setupNode() is called.
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="ctorArgs"></param>
+        internal CMSNode(int id, object[] ctorArgs)
+        {
+            _id = id;
+            PreSetupNode(ctorArgs);
         }
 
         /// <summary>
@@ -409,7 +431,12 @@ namespace umbraco.cms.businesslogic
         protected internal CMSNode(IUmbracoEntity entity)
         {
             _id = entity.Id;
-            _entity = entity;
+            Entity = entity;
+        }
+
+        protected internal CMSNode(IEntity entity)
+        {
+            _id = entity.Id;
         }
 
         #endregion
@@ -467,7 +494,8 @@ namespace umbraco.cms.businesslogic
         {
             List<CMSPreviewNode> nodes = new List<CMSPreviewNode>();
             string sql = @"
-select umbracoNode.id, umbracoNode.parentId, umbracoNode.level, umbracoNode.sortOrder, cmsPreviewXml.xml from umbracoNode 
+select umbracoNode.id, umbracoNode.parentId, umbracoNode.level, umbracoNode.sortOrder, cmsPreviewXml.xml
+from umbracoNode 
 inner join cmsPreviewXml on cmsPreviewXml.nodeId = umbracoNode.id 
 where trashed = 0 and path like '{0}' 
 order by level,sortOrder";
@@ -476,7 +504,7 @@ order by level,sortOrder";
 
             IRecordsReader dr = SqlHelper.ExecuteReader(String.Format(sql, pathExp));
             while (dr.Read())
-                nodes.Add(new CMSPreviewNode(dr.GetInt("id"), dr.GetGuid("uniqueID"), dr.GetInt("parentId"), dr.GetShort("level"), dr.GetInt("sortOrder"), dr.GetString("xml")));
+                nodes.Add(new CMSPreviewNode(dr.GetInt("id"), dr.GetGuid("uniqueID"), dr.GetInt("parentId"), dr.GetShort("level"), dr.GetInt("sortOrder"), dr.GetString("xml"), false));
             dr.Close();
 
             return nodes;
@@ -579,10 +607,7 @@ order by level,sortOrder";
                 {
                     c.Move(this);
                 }
-
-                //TODO: Properly refactor this, we're just clearing the cache so the changes will also be visible in the backoffice
-                InMemoryCacheProvider.Current.Clear();
-
+                
                 FireAfterMove(e);
             }
         }
@@ -722,8 +747,8 @@ order by level,sortOrder";
                 _sortOrder = value;
                 SqlHelper.ExecuteNonQuery("update umbracoNode set sortOrder = '" + value + "' where id = " + this.Id.ToString());
 
-                if (_entity != null)
-                    _entity.SortOrder = value;
+                if (Entity != null)
+                    Entity.SortOrder = value;
             }
         }
 
@@ -787,8 +812,8 @@ order by level,sortOrder";
                 _parentid = value.Id;
                 SqlHelper.ExecuteNonQuery("update umbracoNode set parentId = " + value.Id.ToString() + " where id = " + this.Id.ToString());
 
-                if (_entity != null)
-                    _entity.ParentId = value.Id;
+                if (Entity != null)
+                    Entity.ParentId = value.Id;
             }
         }
 
@@ -805,8 +830,8 @@ order by level,sortOrder";
                 _path = value;
                 SqlHelper.ExecuteNonQuery("update umbracoNode set path = '" + _path + "' where id = " + this.Id.ToString());
 
-                if (_entity != null)
-                    _entity.Path = value;
+                if (Entity != null)
+                    Entity.Path = value;
             }
         }
 
@@ -823,8 +848,8 @@ order by level,sortOrder";
                 _level = value;
                 SqlHelper.ExecuteNonQuery("update umbracoNode set level = " + _level.ToString() + " where id = " + this.Id.ToString());
 
-                if (_entity != null)
-                    _entity.Level = value;
+                if (Entity != null)
+                    Entity.Level = value;
             }
         }
 
@@ -944,8 +969,8 @@ order by level,sortOrder";
                                           SqlHelper.CreateParameter("@text", value.Trim()),
                                           SqlHelper.CreateParameter("@id", this.Id));
 
-                if (_entity != null)
-                    _entity.Name = value;
+                if (Entity != null)
+                    Entity.Name = value;
             }
         }
 
@@ -998,8 +1023,20 @@ order by level,sortOrder";
         {
             _text = txt;
 
-            if (_entity != null)
-                _entity.Name = txt;
+            if (Entity != null)
+                Entity.Name = txt;
+        }
+
+        /// <summary>
+        /// This is purely for a hackity hack hack hack in order to make the new Document(id, version) constructor work because
+        /// the Version property needs to be set on the object before setupNode is called, otherwise it never works!
+        /// </summary>
+        /// <param name="ctorArgs"></param>
+        internal virtual void PreSetupNode(params object[] ctorArgs)
+        {
+            //if people want to override then awesome but then we call setupNode so they need to ensure
+            // to call base.PreSetupNode
+            setupNode();
         }
 
         /// <summary>
@@ -1126,7 +1163,14 @@ order by level,sortOrder";
             _userId = content.CreatorId;
             _createDate = content.CreateDate;
             _isTrashed = content.Trashed;
-            _entity = content;
+            Entity = content;
+        }
+
+        internal protected void PopulateCMSNodeFromUmbracoEntity(IAggregateRoot content, Guid objectType)
+        {
+            _uniqueID = content.Key;
+            _nodeObjectType = objectType;            
+            _createDate = content.CreateDate;
         }
 
         #endregion
@@ -1137,6 +1181,7 @@ order by level,sortOrder";
         {
             // attributes
             x.Attributes.Append(xmlHelper.addAttribute(xd, "id", this.Id.ToString()));
+            x.Attributes.Append(xmlHelper.addAttribute(xd, "key", this.UniqueId.ToString()));
             if (this.Level > 1)
                 x.Attributes.Append(xmlHelper.addAttribute(xd, "parentID", this.Parent.Id.ToString()));
             else

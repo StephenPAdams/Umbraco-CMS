@@ -26,8 +26,8 @@ namespace umbraco.presentation.webservices
         {
             if (!AuthorizeRequest()) return null;
 
-            var check = new global::umbraco.presentation.org.umbraco.update.CheckForUpgrade();                        
-            org.umbraco.update.UpgradeResult result = check.CheckUpgrade(UmbracoVersion.Current.Major,
+            var check = new global::Umbraco.Web.org.umbraco.update.CheckForUpgrade();
+            var result = check.CheckUpgrade(UmbracoVersion.Current.Major,
                                                                          UmbracoVersion.Current.Minor,
                                                                          UmbracoVersion.Current.Build,
                                                                          UmbracoVersion.CurrentComment);
@@ -43,14 +43,21 @@ namespace umbraco.presentation.webservices
             if (!String.IsNullOrEmpty(global::Umbraco.Core.Configuration.GlobalSettings.ConfigurationStatus))
             {
                 isUpgrade = true;
-                legacyAjaxCalls.Authorize();
+                try
+                {
+                    legacyAjaxCalls.Authorize();
+                }
+                catch (Exception)
+                {
+                    //we don't want to throw the exception back to JS
+                    return;
+                }
             }
 
             // Check for current install Id
             Guid installId = Guid.NewGuid();
-            BusinessLogic.StateHelper.Cookies.Cookie installCookie = 
-                new BusinessLogic.StateHelper.Cookies.Cookie("umb_installId", 1);
-            if (!String.IsNullOrEmpty(installCookie.GetValue()))
+            var installCookie = new BusinessLogic.StateHelper.Cookies.Cookie("umb_installId", 1);
+            if (string.IsNullOrEmpty(installCookie.GetValue()) == false)
             {
                 if (Guid.TryParse(installCookie.GetValue(), out installId))
                 {
@@ -62,11 +69,11 @@ namespace umbraco.presentation.webservices
             }
             installCookie.SetValue(installId.ToString());
 
-            string dbProvider = String.Empty;
-            if (!String.IsNullOrEmpty(global::Umbraco.Core.Configuration.GlobalSettings.ConfigurationStatus))
+            string dbProvider = string.Empty;
+            if (string.IsNullOrEmpty(global::Umbraco.Core.Configuration.GlobalSettings.ConfigurationStatus) == false)
             dbProvider = ApplicationContext.Current.DatabaseContext.DatabaseProvider.ToString();
 
-            org.umbraco.update.CheckForUpgrade check = new global::umbraco.presentation.org.umbraco.update.CheckForUpgrade();
+            var check = new global::Umbraco.Web.org.umbraco.update.CheckForUpgrade();
             check.Install(installId,
                 isUpgrade,
                 isCompleted,

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security;
 using System.Xml.Linq;
 using System.Xml.XPath;
 using Examine;
@@ -8,6 +9,7 @@ using Examine.LuceneEngine.Providers;
 using Examine.LuceneEngine.SearchCriteria;
 using Examine.SearchCriteria;
 using Examine.Providers;
+using Umbraco.Core.Macros;
 using UmbracoExamine.DataServices;
 
 namespace UmbracoExamine
@@ -18,6 +20,8 @@ namespace UmbracoExamine
     /// <remarks>
     /// XSLT extensions will ONLY work for provider that have a base class of BaseUmbracoIndexer
     /// </remarks>
+    [XsltExtension("Examine")]
+    
     public class XsltExtensions
     {
         ///<summary>
@@ -28,7 +32,7 @@ namespace UmbracoExamine
         ///<param name="provider"></param>
         ///<param name="indexType"></param>
         ///<returns></returns>
-        internal static XPathNodeIterator Search(string searchText, bool useWildcards, LuceneSearcher provider, string indexType)
+        internal static XPathNodeIterator Search(string searchText, bool useWildcards, BaseSearchProvider provider, string indexType)
         {
             if (provider == null) throw new ArgumentNullException("provider");
 
@@ -46,9 +50,7 @@ namespace UmbracoExamine
         /// <returns></returns>
         public static XPathNodeIterator Search(string searchText, bool useWildcards, string providerName, string indexType)
         {
-            EnsureProvider(ExamineManager.Instance.SearchProviderCollection[providerName]);
-
-            var provider = ExamineManager.Instance.SearchProviderCollection[providerName] as LuceneSearcher;
+            var provider = ExamineManager.Instance.SearchProviderCollection[providerName];
 
             return Search(searchText, useWildcards, provider, indexType);
         }
@@ -184,18 +186,6 @@ namespace UmbracoExamine
         public static XPathNodeIterator SearchContentOnly(string searchText)
         {
             return SearchContentOnly(searchText, true);
-        }
-
-        /// <summary>
-        /// Ensures the provider.
-        /// </summary>
-        /// <param name="p">The provider.</param>
-        private static void EnsureProvider(BaseSearchProvider p)
-        {
-            if (!(p is LuceneSearcher))
-            {
-                throw new NotSupportedException("XSLT Extensions are only support for providers of type LuceneSearcher");
-            }
         }
 
         /// <summary>

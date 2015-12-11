@@ -29,7 +29,8 @@ using Umbraco.Core;
 
 namespace umbraco
 {
-    [Tree(Constants.Applications.Settings, "languages", "Languages", sortOrder: 4)]
+    [Obsolete("This is no longer used and will be removed from the codebase in the future")]
+    //[Tree(Constants.Applications.Settings, "languages", "Languages", sortOrder: 4)]
     public class loadLanguages : BaseTree
 	{
         public loadLanguages(string application) : base(application) { }
@@ -46,10 +47,6 @@ namespace umbraco
                 @"
 function openLanguage(id) {
 	UmbClientMgr.contentFrame('settings/editLanguage.aspx?id=' + id);
-}
-
-function openDictionary() {
-	UmbClientMgr.contentFrame('settings/DictionaryItemList.aspx');
 }");
         }
 
@@ -61,8 +58,8 @@ function openDictionary() {
                 xNode.NodeID = l.id.ToString(); //"language_" + l.id.ToString();
                 xNode.Text = l.FriendlyName;
                 xNode.Action = "javascript:openLanguage(" + l.id + ");";
-                xNode.Icon = "settingLanguage.gif";
-                xNode.OpenIcon = "settingLanguage.gif";
+                xNode.Icon = "icon-flag-alt";
+                xNode.OpenIcon = "icon-flag-alt";
 
                 OnBeforeNodeRender(ref tree, ref xNode, EventArgs.Empty);
                 if (xNode != null)

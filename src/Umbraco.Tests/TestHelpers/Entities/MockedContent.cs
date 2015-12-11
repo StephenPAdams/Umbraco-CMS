@@ -69,7 +69,7 @@ namespace Umbraco.Tests.TestHelpers.Entities
                     title = name + " textpage",
                     bodyText = string.Format("This is a textpage based on the {0} ContentType", contentType.Alias),
                     keywords = "text,page,meta",
-                    metaDescription = "This is the meta description for a textpage"
+                    description = "This is the meta description for a textpage"
                 };
 
             content.PropertyValues(obj);
@@ -101,12 +101,8 @@ namespace Umbraco.Tests.TestHelpers.Entities
             content.SetValue("contentPicker", 1090);
             content.SetValue("mediaPicker", 1091);
             content.SetValue("memberPicker", 1092);
-            content.SetValue("simpleEditor", "This is simply edited");
-            content.SetValue("ultimatePicker", "1234,1235");
             content.SetValue("relatedLinks", "<links><link title=\"google\" link=\"http://google.com\" type=\"external\" newwindow=\"0\" /></links>");
             content.SetValue("tags", "this,is,tags");
-            content.SetValue("macroContainer", "");
-            content.SetValue("imgCropper", "");
 
             return content;
         }
@@ -125,7 +121,7 @@ namespace Umbraco.Tests.TestHelpers.Entities
                         title = name + " title",
                         bodyText = string.Format("This is a textpage based on the {0} ContentType", contentType.Alias),
                         keywords = "text,page,meta",
-                        metaDescription = "This is the meta description for a textpage"
+                        description = "This is the meta description for a textpage"
                     };
 
                 content.PropertyValues(obj);

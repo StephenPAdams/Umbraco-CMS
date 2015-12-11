@@ -1,32 +1,41 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Moq;
 using NUnit.Framework;
 using Umbraco.Core;
+using Umbraco.Core.Cache;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
+using Umbraco.Core.Profiling;
 using Umbraco.Tests.CodeFirst.Attributes;
 using Umbraco.Tests.CodeFirst.Definitions;
 using Umbraco.Tests.CodeFirst.TestModels.Composition;
-using Umbraco.Tests.TestHelpers;
 
 namespace Umbraco.Tests.CodeFirst
 {
     [TestFixture]
     public class TypeInheritanceTest
     {
+        private PluginManager _pluginManager;
+
         [SetUp]
         public void Initialize()
         {
-            TestHelper.SetupLog4NetForTests();
+            var logger = new ProfilingLogger(Mock.Of<ILogger>(), Mock.Of<IProfiler>());
 
             //this ensures its reset
-            PluginManager.Current = new PluginManager(false);
+            _pluginManager = new PluginManager(new ActivatorServiceProvider(), new NullCacheProvider(),
+                logger,
+                false)
+            {
+                AssembliesToScan = new[]
+		        {
+		            typeof (ContentTypeBase).Assembly
+		        }
+            };
 
-            //for testing, we'll specify which assemblies are scanned for the PluginTypeResolver
-            PluginManager.Current.AssembliesToScan = new[]
-                {
-                    typeof (ContentTypeBase).Assembly
-                };
+          
         }
 
         [Test]
@@ -64,26 +73,21 @@ namespace Umbraco.Tests.CodeFirst
             }
 
             Assert.That(list.Count, Is.EqualTo(3));
-            Assert.That(list.Any(x => x == "meta"), Is.True);
-            Assert.That(list.Any(x => x == "metaSeo"), Is.True);
-            Assert.That(list.Any(x => x == "base"), Is.True);
+            Assert.Contains("Meta", list);
+            Assert.Contains("MetaSeo", list);
+            Assert.Contains("Base", list);
         }
 
         [Test]
         public void Ensure_Only_One_Type_List_Created()
         {
-            var foundTypes = PluginManager.Current.ResolveContentTypeBaseTypes();
+            var foundTypes = _pluginManager.ResolveContentTypeBaseTypes();
 
             Assert.That(foundTypes.Count(), Is.EqualTo(15));
             Assert.AreEqual(1,
-                            PluginManager.Current.GetTypeLists()
+                            _pluginManager.GetTypeLists()
                                 .Count(x => x.IsTypeList<ContentTypeBase>(PluginManager.TypeResolutionKind.FindAllTypes)));
         }
 
-        [TearDown]
-        public void TearDown()
-        {
-            PluginManager.Current = null;
-        }
     }
 }

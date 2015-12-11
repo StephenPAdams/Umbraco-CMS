@@ -4,42 +4,39 @@ using System.Linq;
 using System.Threading;
 using Umbraco.Core.Auditing;
 using Umbraco.Core.Events;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Rdbms;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.Querying;
 using Umbraco.Core.Persistence.UnitOfWork;
+using Umbraco.Core.PropertyEditors;
 using umbraco.interfaces;
 
 namespace Umbraco.Core.Services
 {
     /// <summary>
-    /// Represents the DataType Service, which is an easy access to operations involving <see cref="IDataType"/> and <see cref="IDataTypeDefinition"/>
+    /// Represents the DataType Service, which is an easy access to operations involving <see cref="IDataTypeDefinition"/>
     /// </summary>
-    public class DataTypeService : IDataTypeService
+    public class DataTypeService : RepositoryService, IDataTypeService
     {
-	    private readonly RepositoryFactory _repositoryFactory;
-        private readonly IDatabaseUnitOfWorkProvider _uowProvider;
-        private static readonly ReaderWriterLockSlim Locker = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
 
-        public DataTypeService()
-            : this(new RepositoryFactory())
-        {}
-
-        public DataTypeService(RepositoryFactory repositoryFactory)
-			: this(new PetaPocoUnitOfWorkProvider(), repositoryFactory)
+        public DataTypeService(IDatabaseUnitOfWorkProvider provider, RepositoryFactory repositoryFactory, ILogger logger, IEventMessagesFactory eventMessagesFactory)
+            : base(provider, repositoryFactory, logger, eventMessagesFactory)
         {
         }
 
-        public DataTypeService(IDatabaseUnitOfWorkProvider provider)
-            : this(provider, new RepositoryFactory())
+        /// <summary>
+        /// Gets a <see cref="IDataTypeDefinition"/> by its Name
+        /// </summary>
+        /// <param name="name">Name of the <see cref="IDataTypeDefinition"/></param>
+        /// <returns><see cref="IDataTypeDefinition"/></returns>
+        public IDataTypeDefinition GetDataTypeDefinitionByName(string name)
         {
-        }
-
-		public DataTypeService(IDatabaseUnitOfWorkProvider provider, RepositoryFactory repositoryFactory)
-        {
-			_repositoryFactory = repositoryFactory;
-            _uowProvider = provider;
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetByQuery(new Query<IDataTypeDefinition>().Where(x => x.Name == name)).FirstOrDefault();
+            }
         }
 
         /// <summary>
@@ -49,7 +46,7 @@ namespace Umbraco.Core.Services
         /// <returns><see cref="IDataTypeDefinition"/></returns>
         public IDataTypeDefinition GetDataTypeDefinitionById(int id)
         {
-            using (var repository = _repositoryFactory.CreateDataTypeDefinitionRepository(_uowProvider.GetUnitOfWork()))
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(UowProvider.GetUnitOfWork()))
             {
                 return repository.Get(id);
             }
@@ -62,7 +59,7 @@ namespace Umbraco.Core.Services
         /// <returns><see cref="IDataTypeDefinition"/></returns>
         public IDataTypeDefinition GetDataTypeDefinitionById(Guid id)
         {
-            using (var repository = _repositoryFactory.CreateDataTypeDefinitionRepository(_uowProvider.GetUnitOfWork()))
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(UowProvider.GetUnitOfWork()))
             {
                 var query = Query<IDataTypeDefinition>.Builder.Where(x => x.Key == id);
                 var definitions = repository.GetByQuery(query);
@@ -76,11 +73,23 @@ namespace Umbraco.Core.Services
         /// </summary>
         /// <param name="id">Id of the DataType control</param>
         /// <returns>Collection of <see cref="IDataTypeDefinition"/> objects with a matching contorl id</returns>
+        [Obsolete("Property editor's are defined by a string alias from version 7 onwards, use the overload GetDataTypeDefinitionByPropertyEditorAlias instead")]
         public IEnumerable<IDataTypeDefinition> GetDataTypeDefinitionByControlId(Guid id)
         {
-            using (var repository = _repositoryFactory.CreateDataTypeDefinitionRepository(_uowProvider.GetUnitOfWork()))
+            var alias = LegacyPropertyEditorIdToAliasConverter.GetAliasFromLegacyId(id, true);
+            return GetDataTypeDefinitionByPropertyEditorAlias(alias);
+        }
+
+        /// <summary>
+        /// Gets a <see cref="IDataTypeDefinition"/> by its control Id
+        /// </summary>
+        /// <param name="propertyEditorAlias">Alias of the property editor</param>
+        /// <returns>Collection of <see cref="IDataTypeDefinition"/> objects with a matching contorl id</returns>
+        public IEnumerable<IDataTypeDefinition> GetDataTypeDefinitionByPropertyEditorAlias(string propertyEditorAlias)
+        {
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(UowProvider.GetUnitOfWork()))
             {
-                var query = Query<IDataTypeDefinition>.Builder.Where(x => x.ControlId == id);
+                var query = Query<IDataTypeDefinition>.Builder.Where(x => x.PropertyEditorAlias == propertyEditorAlias);
                 var definitions = repository.GetByQuery(query);
 
                 return definitions;
@@ -94,7 +103,7 @@ namespace Umbraco.Core.Services
         /// <returns>An enumerable list of <see cref="IDataTypeDefinition"/> objects</returns>
         public IEnumerable<IDataTypeDefinition> GetAllDataTypeDefinitions(params int[] ids)
         {
-            using (var repository = _repositoryFactory.CreateDataTypeDefinitionRepository(_uowProvider.GetUnitOfWork()))
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(UowProvider.GetUnitOfWork()))
             {
                 return repository.GetAll(ids);
             }
@@ -107,29 +116,27 @@ namespace Umbraco.Core.Services
         /// <returns>An enumerable list of string values</returns>
         public IEnumerable<string> GetPreValuesByDataTypeId(int id)
         {
-            using (var uow = _uowProvider.GetUnitOfWork())
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(UowProvider.GetUnitOfWork()))
             {
-                var dtos = uow.Database.Fetch<DataTypePreValueDto>("WHERE datatypeNodeId = @Id", new {Id = id});
-                var list = dtos.Select(x => x.Value).ToList();
+                var collection = repository.GetPreValuesCollectionByDataTypeId(id);
+                //now convert the collection to a string list
+                var list = collection.FormatAsDictionary()
+                    .Select(x => x.Value.Value)
+                    .ToList();
                 return list;
             }
         }
-
+        
         /// <summary>
-        /// Gets all prevalues for an <see cref="IDataTypeDefinition"/>
+        /// Returns the PreValueCollection for the specified data type
         /// </summary>
-        /// <remarks>
-        /// This method should be kept internal until a proper PreValue object model is introduced.
-        /// </remarks>
-        /// <param name="id">Id of the <see cref="IDataTypeDefinition"/> to retrieve prevalues from</param>
-        /// <returns>An enumerable list of Tuples containing Id, Alias, SortOrder, Value</returns>
-        internal IEnumerable<Tuple<int, string, int, string>> GetDetailedPreValuesByDataTypeId(int id)
+        /// <param name="id"></param>
+        /// <returns></returns>
+        public PreValueCollection GetPreValuesCollectionByDataTypeId(int id)
         {
-            using (var uow = _uowProvider.GetUnitOfWork())
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(UowProvider.GetUnitOfWork()))
             {
-                var dtos = uow.Database.Fetch<DataTypePreValueDto>("WHERE datatypeNodeId = @Id", new { Id = id });
-                var list = dtos.Select(x => new Tuple<int, string, int, string>(x.Id, x.Alias, x.SortOrder, x.Value)).ToList();
-                return list;
+                return repository.GetPreValuesCollectionByDataTypeId(id);
             }
         }
 
@@ -140,10 +147,9 @@ namespace Umbraco.Core.Services
         /// <returns>PreValue as a string</returns>
         public string GetPreValueAsString(int id)
         {
-            using (var uow = _uowProvider.GetUnitOfWork())
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(UowProvider.GetUnitOfWork()))
             {
-                var dto = uow.Database.FirstOrDefault<DataTypePreValueDto>("WHERE id = @Id", new { Id = id });
-                return dto != null ? dto.Value : string.Empty;
+                return repository.GetPreValueAsString(id);
             }
         }
 
@@ -157,20 +163,17 @@ namespace Umbraco.Core.Services
 	        if (Saving.IsRaisedEventCancelled(new SaveEventArgs<IDataTypeDefinition>(dataTypeDefinition), this)) 
 				return;
 
-            using (new WriteLock(Locker))
+            var uow = UowProvider.GetUnitOfWork();
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(uow))
             {
-                var uow = _uowProvider.GetUnitOfWork();
-                using (var repository = _repositoryFactory.CreateDataTypeDefinitionRepository(uow))
-                {
-                    dataTypeDefinition.CreatorId = userId;
-                    repository.AddOrUpdate(dataTypeDefinition);
-                    uow.Commit();
+                dataTypeDefinition.CreatorId = userId;
+                repository.AddOrUpdate(dataTypeDefinition);
+                uow.Commit();
 
-                    Saved.RaiseEvent(new SaveEventArgs<IDataTypeDefinition>(dataTypeDefinition, false), this);
-                }
+                Saved.RaiseEvent(new SaveEventArgs<IDataTypeDefinition>(dataTypeDefinition, false), this);
             }
 
-            Audit.Add(AuditTypes.Save, string.Format("Save DataTypeDefinition performed by user"), userId, dataTypeDefinition.Id);
+            Audit(AuditType.Save, string.Format("Save DataTypeDefinition performed by user"), userId, dataTypeDefinition.Id);
         }
 
         /// <summary>
@@ -180,61 +183,145 @@ namespace Umbraco.Core.Services
         /// <param name="userId">Id of the user issueing the save</param>
         public void Save(IEnumerable<IDataTypeDefinition> dataTypeDefinitions, int userId = 0)
         {
-            if (Saving.IsRaisedEventCancelled(new SaveEventArgs<IDataTypeDefinition>(dataTypeDefinitions), this))
-                return;
+            Save(dataTypeDefinitions, userId, true);
+        }
 
-            using (new WriteLock(Locker))
+        /// <summary>
+        /// Saves a collection of <see cref="IDataTypeDefinition"/>
+        /// </summary>
+        /// <param name="dataTypeDefinitions"><see cref="IDataTypeDefinition"/> to save</param>
+        /// <param name="userId">Id of the user issueing the save</param>
+        /// <param name="raiseEvents">Boolean indicating whether or not to raise events</param>
+        public void Save(IEnumerable<IDataTypeDefinition> dataTypeDefinitions, int userId, bool raiseEvents)
+        {
+            if (raiseEvents)
             {
-                var uow = _uowProvider.GetUnitOfWork();
-                using (var repository = _repositoryFactory.CreateDataTypeDefinitionRepository(uow))
-                {
-                    foreach (var dataTypeDefinition in dataTypeDefinitions)
-                    {
-                        dataTypeDefinition.CreatorId = userId;
-                        repository.AddOrUpdate(dataTypeDefinition);
-                    }
-                    uow.Commit();
-
-                    Saved.RaiseEvent(new SaveEventArgs<IDataTypeDefinition>(dataTypeDefinitions, false), this);
-                }
+                if (Saving.IsRaisedEventCancelled(new SaveEventArgs<IDataTypeDefinition>(dataTypeDefinitions), this))
+                    return;
             }
-            Audit.Add(AuditTypes.Save, string.Format("Save DataTypeDefinition performed by user"), userId, -1);
+
+            var uow = UowProvider.GetUnitOfWork();
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(uow))
+            {
+                foreach (var dataTypeDefinition in dataTypeDefinitions)
+                {
+                    dataTypeDefinition.CreatorId = userId;
+                    repository.AddOrUpdate(dataTypeDefinition);
+                }
+                uow.Commit();
+
+                if (raiseEvents)
+                    Saved.RaiseEvent(new SaveEventArgs<IDataTypeDefinition>(dataTypeDefinitions, false), this);
+            }
+
+            Audit(AuditType.Save, string.Format("Save DataTypeDefinition performed by user"), userId, -1);
         }
 
         /// <summary>
         /// Saves a list of PreValues for a given DataTypeDefinition
         /// </summary>
-        /// <param name="id">Id of the DataTypeDefinition to save PreValues for</param>
+        /// <param name="dataTypeId">Id of the DataTypeDefinition to save PreValues for</param>
         /// <param name="values">List of string values to save</param>
-        public void SavePreValues(int id, IEnumerable<string> values)
+        [Obsolete("This should no longer be used, use the alternative SavePreValues or SaveDataTypeAndPreValues methods instead. This will only insert pre-values without keys")]
+        public void SavePreValues(int dataTypeId, IEnumerable<string> values)
         {
-            using (new WriteLock(Locker))
+            //TODO: Should we raise an event here since we are really saving values for the data type?
+
+            using (var uow = UowProvider.GetUnitOfWork())
             {
-                using (var uow = _uowProvider.GetUnitOfWork())
+                using (var transaction = uow.Database.GetTransaction())
                 {
                     var sortOrderObj =
-                        uow.Database.ExecuteScalar<object>(
-                            "SELECT max(sortorder) FROM cmsDataTypePreValues WHERE datatypeNodeId = @DataTypeId", new { DataTypeId = id });
+                    uow.Database.ExecuteScalar<object>(
+                        "SELECT max(sortorder) FROM cmsDataTypePreValues WHERE datatypeNodeId = @DataTypeId", new { DataTypeId = dataTypeId });
                     int sortOrder;
                     if (sortOrderObj == null || int.TryParse(sortOrderObj.ToString(), out sortOrder) == false)
                     {
                         sortOrder = 1;
                     }
 
-                    using (var transaction = uow.Database.GetTransaction())
+                    foreach (var value in values)
                     {
-                        foreach (var value in values)
-                        {
-                            var dto = new DataTypePreValueDto { DataTypeNodeId = id, Value = value, SortOrder = sortOrder };
-                            uow.Database.Insert(dto);
-                            sortOrder++;
-                        }
-
-                        transaction.Complete();
+                        var dto = new DataTypePreValueDto { DataTypeNodeId = dataTypeId, Value = value, SortOrder = sortOrder };
+                        uow.Database.Insert(dto);
+                        sortOrder++;
                     }
+
+                    transaction.Complete();
                 }
             }
         }
+
+        /// <summary>
+        /// Saves/updates the pre-values
+        /// </summary>
+        /// <param name="dataTypeId"></param>
+        /// <param name="values"></param>
+        /// <remarks>
+        /// We need to actually look up each pre-value and maintain it's id if possible - this is because of silly property editors
+        /// like 'dropdown list publishing keys'
+        /// </remarks>
+        public void SavePreValues(int dataTypeId, IDictionary<string, PreValue> values)
+        {
+            var dtd = this.GetDataTypeDefinitionById(dataTypeId);
+            if (dtd == null)
+            {
+                throw new InvalidOperationException("No data type found for id " + dataTypeId);
+            }
+            SavePreValues(dtd, values);
+        }
+
+        /// <summary>
+        /// Saves/updates the pre-values
+        /// </summary>
+        /// <param name="dataTypeDefinition"></param>
+        /// <param name="values"></param>
+        /// <remarks>
+        /// We need to actually look up each pre-value and maintain it's id if possible - this is because of silly property editors
+        /// like 'dropdown list publishing keys'
+        /// </remarks>
+        public void SavePreValues(IDataTypeDefinition dataTypeDefinition, IDictionary<string, PreValue> values)
+        {
+            //TODO: Should we raise an event here since we are really saving values for the data type?
+
+            var uow = UowProvider.GetUnitOfWork();
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(uow))
+            {
+                repository.AddOrUpdatePreValues(dataTypeDefinition, values);
+                uow.Commit();
+            }
+        }
+
+        /// <summary>
+        /// This will save a data type and it's pre-values in one transaction
+        /// </summary>
+        /// <param name="dataTypeDefinition"></param>
+        /// <param name="values"></param>
+        /// <param name="userId"></param>
+        public void SaveDataTypeAndPreValues(IDataTypeDefinition dataTypeDefinition, IDictionary<string, PreValue> values, int userId = 0)
+        {
+            if (Saving.IsRaisedEventCancelled(new SaveEventArgs<IDataTypeDefinition>(dataTypeDefinition), this))
+                return;
+
+            var uow = UowProvider.GetUnitOfWork();
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(uow))
+            {
+                dataTypeDefinition.CreatorId = userId;
+
+                //add/update the dtd
+                repository.AddOrUpdate(dataTypeDefinition);
+
+                //add/update the prevalues
+                repository.AddOrUpdatePreValues(dataTypeDefinition, values);
+
+                uow.Commit();
+
+                Saved.RaiseEvent(new SaveEventArgs<IDataTypeDefinition>(dataTypeDefinition, false), this);
+            }
+            
+            Audit(AuditType.Save, string.Format("Save DataTypeDefinition performed by user"), userId, dataTypeDefinition.Id);
+        }
+
 
         /// <summary>
         /// Deletes an <see cref="IDataTypeDefinition"/>
@@ -250,39 +337,17 @@ namespace Umbraco.Core.Services
 	        if (Deleting.IsRaisedEventCancelled(new DeleteEventArgs<IDataTypeDefinition>(dataTypeDefinition), this)) 
 				return;
 	        
-			var uow = _uowProvider.GetUnitOfWork();
-	        using (var repository = _repositoryFactory.CreateContentTypeRepository(uow))
+			var uow = UowProvider.GetUnitOfWork();
+            using (var repository = RepositoryFactory.CreateDataTypeDefinitionRepository(uow))
 	        {
-		        //Find ContentTypes using this IDataTypeDefinition on a PropertyType
-		        var query = Query<PropertyType>.Builder.Where(x => x.DataTypeDefinitionId == dataTypeDefinition.Id);
-		        var contentTypes = repository.GetByQuery(query);
-
-		        //Loop through the list of results and remove the PropertyTypes that references the DataTypeDefinition that is being deleted
-		        foreach (var contentType in contentTypes)
-		        {
-			        if (contentType == null) continue;
-
-			        foreach (var group in contentType.PropertyGroups)
-			        {
-				        var types = @group.PropertyTypes.Where(x => x.DataTypeDefinitionId == dataTypeDefinition.Id).ToList();
-				        foreach (var propertyType in types)
-				        {
-					        @group.PropertyTypes.Remove(propertyType);
-				        }
-			        }
-
-			        repository.AddOrUpdate(contentType);
-		        }
-
-		        var dataTypeRepository = _repositoryFactory.CreateDataTypeDefinitionRepository(uow);
-		        dataTypeRepository.Delete(dataTypeDefinition);
+                repository.Delete(dataTypeDefinition);
 
 		        uow.Commit();
 
 		        Deleted.RaiseEvent(new DeleteEventArgs<IDataTypeDefinition>(dataTypeDefinition, false), this); 		        
 	        }
 
-	        Audit.Add(AuditTypes.Delete, string.Format("Delete DataTypeDefinition performed by user"), userId, dataTypeDefinition.Id);
+	        Audit(AuditType.Delete, string.Format("Delete DataTypeDefinition performed by user"), userId, dataTypeDefinition.Id);
         }
 
         /// <summary>
@@ -290,6 +355,7 @@ namespace Umbraco.Core.Services
         /// </summary>
         /// <param name="id">Id of the DataType, which corresponds to the Guid Id of the control</param>
         /// <returns><see cref="IDataType"/> object</returns>
+        [Obsolete("IDataType is obsolete and is no longer used, it will be removed from the codebase in future versions")]
         public IDataType GetDataTypeById(Guid id)
         {
             return DataTypesResolver.Current.GetById(id);
@@ -299,9 +365,20 @@ namespace Umbraco.Core.Services
         /// Gets a complete list of all registered <see cref="IDataType"/>'s
         /// </summary>
         /// <returns>An enumerable list of <see cref="IDataType"/> objects</returns>
+        [Obsolete("IDataType is obsolete and is no longer used, it will be removed from the codebase in future versions")]
         public IEnumerable<IDataType> GetAllDataTypes()
         {
             return DataTypesResolver.Current.DataTypes;
+        }
+
+        private void Audit(AuditType type, string message, int userId, int objectId)
+        {
+            var uow = UowProvider.GetUnitOfWork();
+            using (var auditRepo = RepositoryFactory.CreateAuditRepository(uow))
+            {
+                auditRepo.AddOrUpdate(new AuditItem(objectId, message, type, userId));
+                uow.Commit();
+            }
         }
 
         #region Event Handlers
@@ -325,5 +402,7 @@ namespace Umbraco.Core.Services
         /// </summary>
 		public static event TypedEventHandler<IDataTypeService, SaveEventArgs<IDataTypeDefinition>> Saved;
         #endregion
+
+        
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.DatabaseAnnotations;
+using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 
 namespace Umbraco.Core.Models.Rdbms
 {
@@ -16,6 +17,7 @@ namespace Umbraco.Core.Models.Rdbms
         public int NodeId { get; set; }
 
         [Column("published")]
+        [Index(IndexTypes.NonClustered, Name = "IX_cmsDocument_published")]
         public bool Published { get; set; }
 
         [Column("documentUser")]
@@ -37,23 +39,23 @@ namespace Umbraco.Core.Models.Rdbms
         public DateTime? ExpiresDate { get; set; }
 
         [Column("updateDate")]
-        [Constraint(Default = "getdate()")]
+        [Constraint(Default = SystemMethods.CurrentDateTime)]
         public DateTime UpdateDate { get; set; }
 
         [Column("templateId")]
         [NullSetting(NullSetting = NullSettings.Null)]
         [ForeignKey(typeof(TemplateDto), Column = "nodeId")]
         public int? TemplateId { get; set; }
-
-        [Column("alias")]
-        [NullSetting(NullSetting = NullSettings.Null)]
-        public string Alias { get; set; }
-
+        
         [Column("newest")]
         [Constraint(Default = "0")]
+        [Index(IndexTypes.NonClustered, Name = "IX_cmsDocument_newest")]
         public bool Newest { get; set; }
 
         [ResultColumn]
         public ContentVersionDto ContentVersionDto { get; set; }
+
+        [ResultColumn]
+        public DocumentPublishedReadOnlyDto DocumentPublishedReadOnlyDto { get; set; }
     }
 }

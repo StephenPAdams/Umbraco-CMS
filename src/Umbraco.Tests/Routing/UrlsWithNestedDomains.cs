@@ -2,18 +2,20 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Moq;
 using NUnit.Framework;
+using Umbraco.Core.Configuration.UmbracoSettings;
+using Umbraco.Core.Models;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Web.PublishedCache.XmlPublishedCache;
-using umbraco.cms.businesslogic.web;
-using umbraco.cms.businesslogic.language;
 using Umbraco.Web.Routing;
+using umbraco.cms.businesslogic.web;
 using System.Configuration;
 
 namespace Umbraco.Tests.Routing
 {
 	[TestFixture]
-	public class UrlsWithNestedDomains : BaseRoutingTest
+    public class UrlsWithNestedDomains : UrlRoutingTestBase
 	{
 		// in the case of nested domains more than 1 url may resolve to a document
 		// but only one route can be cached - the 'canonical' route ie the route
@@ -24,17 +26,19 @@ namespace Umbraco.Tests.Routing
 		public void DoNotPolluteCache()
 		{
             SettingsForTests.UseDirectoryUrls = true;
-            SettingsForTests.HideTopLevelNodeFromPath = false; // ignored w/domains
-            SettingsForTests.UseDomainPrefixes = false;
+            SettingsForTests.HideTopLevelNodeFromPath = false; // ignored w/domains            
 
-			InitializeLanguagesAndDomains();
+            var settings = SettingsForTests.GenerateMockSettings();
+            var request = Mock.Get(settings.RequestHandler);
+            request.Setup(x => x.UseDomainPrefixes).Returns(true);
+
 			SetDomains1();
 
 			RoutingContext routingContext;
 			string url = "http://domain1.com/1001-1/1001-1-1";
 			
 			// get the nice url for 100111
-			routingContext = GetRoutingContext(url);
+		    routingContext = GetRoutingContext(url, 9999, umbracoSettings: settings);
 			Assert.AreEqual("http://domain2.com/1001-1-1/", routingContext.UrlProvider.GetUrl(100111, true));
 
 			// check that the proper route has been cached
@@ -66,40 +70,20 @@ namespace Umbraco.Tests.Routing
 			//Assert.AreEqual("http://domain1.com/1001-1/1001-1-1", routingContext.NiceUrlProvider.GetNiceUrl(100111, true)); // bad
 		}
 
-        public override void Initialize()
-        {
-            base.Initialize();
-
-            // ensure we can create them although the content is not in the database
-            TestHelper.DropForeignKeys("umbracoDomains");
-        }
-
         protected override void FreezeResolution()
         {
             SiteDomainHelperResolver.Current = new SiteDomainHelperResolver(new SiteDomainHelper());
             base.FreezeResolution();
         }
 
-		void InitializeLanguagesAndDomains()
-		{
-			var domains = Domain.GetDomains();
-			foreach (var d in domains)
-				d.Delete();
-
-			var langs = Language.GetAllAsList();
-			foreach (var l in langs.Skip(1))
-				l.Delete();
-
-			Language.MakeNew("fr-FR");
-		}
-
 		void SetDomains1()
 		{
-			var langEn = Language.GetByCultureCode("en-US");
-			var langFr = Language.GetByCultureCode("fr-FR");
+            SetupDomainServiceMock(new[]
+            {
+                new UmbracoDomain("http://domain1.com/") {Id = 1, LanguageId = LangEngId, RootContentId = 1001, LanguageIsoCode = "en-US"},
+                new UmbracoDomain("http://domain2.com/") {Id = 1, LanguageId = LangEngId, RootContentId = 10011, LanguageIsoCode = "en-US"}
+            });
 
-			Domain.MakeNew("http://domain1.com/", 1001, langEn.id);
-			Domain.MakeNew("http://domain2.com/", 10011, langEn.id);
 		}
 
 		protected override string GetXmlContent(int templateId)
